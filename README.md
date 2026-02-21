@@ -135,12 +135,11 @@ The system is organized in layers, each enforcing IICA:
 
 | Module | Immutability | Idempotence | Content Addressable |
 | -------- | -------------- | ------------- | --------------------- |
-| **HLLSet** | `add()` returns new HLLSet | `union(A,A) == A` | Hash of registers |
-| **BasicHLLSet** | Frozen dataclass | `merge(A,A) == A` | `(reg, zeros)` tuple |
+| **HLLSet** | `add()` returns new HLLSet | `union(A,A) == A` | SHA1 of registers |
 | **ImmutableTensor** | Returns new tensor on ops | `max(A,A) == A` | SHA1 of data |
 | **Kernel** | Pure functions, no state | All ops idempotent | N/A (stateless) |
 | **HRT_IICA** | `merge()` returns new HRT | `merge(A,A) == A` | SHA1 of structure |
-| **EmbeddedLUT** | FrozenSet of entries | Union idempotent | Hash of entries |
+| **EmbeddedLUT** | Idempotent hash functions | Union idempotent | Hash of entries |
 | **HRTStack** | Append-only history | Commit idempotent | Commit SHA |
 | **ManifoldOS_IICA** | HEAD moves, history preserved | Re-ingest = no-op | Via HRT names |
 
@@ -268,7 +267,7 @@ This is not term frequency—it's **context covariance**.
 
 - **Bounded**: Value can't exceed `min(|row|, |col|)`
 - **Deterministic**: Same HLLSets → same intersection → same value
-- **IICA-safe**: Merge via element-wise max preserves idempotence
+- **IICA-safe**: Merge via bit-wise OR preserves idempotence
 - **Directed**: `AM[i,j] ≠ AM[j,i]` (captures token order)
 - **Not acyclic**: Allows duplicates ("the cat sat on the mat")
 

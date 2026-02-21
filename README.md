@@ -36,6 +36,8 @@ Fractal Manifold is a **content-addressable semantic memory** that stores and re
 
 The IICA properties aren't imposed artificially—they emerge naturally from the **HyperLogLog Set (HLLSet)** primitive at the core of the system.
 
+**Important!** Despite its name, HLLSet is not a HyperLogLog cardinality estimator, which is based on Flajolet-Martin algorithms. We use the HyperLogLog prefix to honor the inventors and developers of this outstanding computational breakthrough.
+
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                     HLLSet: NATURAL IICA                                │
@@ -60,14 +62,14 @@ The IICA properties aren't imposed artificially—they emerge naturally from the
 │                                                                         │
 │  ✓ IDEMPOTENT                                                           │
 │    • add("apple") twice = add("apple") once                             │
-│    • HLLSet stores max(zeros) per register                              │
-│    • Duplicates have no effect: max(7, 7) = 7                           │
+│    • HLLSet stores each hash at (reg, zeros) position in HLLSet         │
+│    • Duplicates have no effect: (reg, zeros) is the same for given hash │
 │                                                                         │
 │  ✓ MERGE = UNION                                                        │
-│    • HLLSet merge is element-wise max                                   │
-│    • max(A, A) = A  (idempotent)                                        │
-│    • max(A, B) = max(B, A)  (commutative)                               │
-│    • max(max(A,B), C) = max(A, max(B,C))  (associative)                 │
+│    • HLLSet merge is bit-wise OR                                        │
+│    • union(A, A) = A  (idempotent)                                      │
+│    • union(A, B) = union(B, A)  (commutative)                           │
+│    • union(union(A,B), C) = union(A, union(B,C))  (associative)         │
 │                                                                         │
 │  The architecture just adds IMMUTABILITY discipline                     │
 │  ─────────────────────────────────────────────────                      │

@@ -19,7 +19,7 @@ Architecture:
 """
 
 from __future__ import annotations
-from typing import List, Dict, Set, Optional, Tuple, Union, FrozenSet
+from typing import List, Dict, Set, Optional, Tuple, Union, FrozenSet, Any
 from dataclasses import dataclass, field
 from enum import Enum, auto
 import time
@@ -1228,6 +1228,170 @@ class HRT:
         extra_str = ", " + ", ".join(extras) if extras else ""
         return f"HRT({self.name[:16]}..., step={self.step_number}, dim={self.config.dimension}{extra_str})"
     
+    # =========================================================================
+    # Convenience Methods (HRT as Central State)
+    # =========================================================================
+    
+    def get_row_hllset(self, index: int) -> Optional[HLLSet]:
+        """Get row basic HLLSet by index."""
+        basic = self.lattice.get_row_basic(index)
+        return basic.hllset if basic else None
+    
+    def get_col_hllset(self, index: int) -> Optional[HLLSet]:
+        """Get column basic HLLSet by index."""
+        basic = self.lattice.get_col_basic(index)
+        return basic.hllset if basic else None
+    
+    def get_hllset(self, name: str) -> Optional[HLLSet]:
+        """
+        Get HLLSet by name ('r_5' or 'c_3').
+        
+        Args:
+            name: Basic HLLSet name in format 'r_i' or 'c_j'
+        
+        Returns:
+            HLLSet or None if not found
+        """
+        basic = self.lattice.get_basic(name)
+        return basic.hllset if basic else None
+    
+    def get_cardinality(self, name: str) -> float:
+        """Get cardinality of basic HLLSet by name."""
+        hllset = self.get_hllset(name)
+        return hllset.cardinality() if hllset else 0.0
+    
+    def get_total_cardinality(self) -> float:
+        """Get sum of all cardinalities in lattice."""
+        total = 0.0
+        for basic in self.lattice.row_basic:
+            total += basic.hllset.cardinality()
+        for basic in self.lattice.col_basic:
+            total += basic.hllset.cardinality()
+        return total
+    
+    def get_similarity(self, name1: str, name2: str) -> float:
+        """
+        Get Jaccard similarity between two basic HLLSets.
+        
+        Args:
+            name1: First basic name ('r_5' or 'c_3')
+            name2: Second basic name
+        
+        Returns:
+            Jaccard similarity in [0, 1]
+        """
+        h1 = self.get_hllset(name1)
+        h2 = self.get_hllset(name2)
+        if h1 is None or h2 is None:
+            return 0.0
+        return h1.similarity(h2)
+    
+    def get_nonempty_rows(self) -> List[int]:
+        """Get indices of non-empty row basics."""
+        return [i for i, b in enumerate(self.lattice.row_basic) 
+                if b.hllset.cardinality() > 0]
+    
+    def get_nonempty_cols(self) -> List[int]:
+        """Get indices of non-empty column basics."""
+        return [i for i, b in enumerate(self.lattice.col_basic) 
+                if b.hllset.cardinality() > 0]
+    
+    def get_am_density(self) -> float:
+        """Get adjacency matrix density (nonzero fraction)."""
+        entries = len(self.am.nonzero_entries())
+        total = self.config.dimension ** 2
+        return entries / total if total > 0 else 0.0
+    
+    def get_lattice_density(self) -> float:
+        """Get lattice density (nonempty fraction)."""
+        total = len(self.lattice.row_basic) + len(self.lattice.col_basic)
+        nonempty = len(self.get_nonempty_rows()) + len(self.get_nonempty_cols())
+        return nonempty / total if total > 0 else 0.0
+    
+    def to_summary(self) -> Dict[str, Any]:
+        """
+        Generate comprehensive summary of HRT state.
+        
+        Returns:
+            Dictionary with state metrics
+        """
+        return {
+            'name': self.name,
+            'step_number': self.step_number,
+            'parent': self.parent_hrt,
+            'dimension': self.config.dimension,
+            'am_entries': len(self.am.nonzero_entries()),
+            'am_density': self.get_am_density(),
+            'nonempty_rows': len(self.get_nonempty_rows()),
+            'nonempty_cols': len(self.get_nonempty_cols()),
+            'lattice_density': self.get_lattice_density(),
+            'total_cardinality': self.get_total_cardinality(),
+            'covers': len(self.covers),
+            'conservation_health': self.conservation_health(),
+            'timestamp': self.timestamp,
+            'config': {
+                'tau': self.config.tau,
+                'rho': self.config.rho,
+                'epsilon': self.config.epsilon
+            }
+        }
+    
+    def with_row_updated(self, index: int, hllset: HLLSet) -> 'HRT':
+        """
+        Return new HRT with row basic HLLSet updated.
+        
+        Functional update - original is unchanged.
+        """
+        new_lattice = self.lattice.with_row_basic(index, hllset)
+        return HRT(
+            config=self.config,
+            am=self.am,
+            lattice=new_lattice,
+            parent_hrt=self.name,
+            step_number=self.step_number + 1,
+            covers=self.covers
+        )
+    
+    def with_col_updated(self, index: int, hllset: HLLSet) -> 'HRT':
+        """
+        Return new HRT with column basic HLLSet updated.
+        
+        Functional update - original is unchanged.
+        """
+        new_lattice = self.lattice.with_col_basic(index, hllset)
+        return HRT(
+            config=self.config,
+            am=self.am,
+            lattice=new_lattice,
+            parent_hrt=self.name,
+            step_number=self.step_number + 1,
+            covers=self.covers
+        )
+    
+    def with_am_entry(self, row: int, col: int, value: float) -> 'HRT':
+        """
+        Return new HRT with AM entry set.
+        
+        Functional update - original is unchanged.
+        """
+        new_am = self.am.with_entry(row, col, value)
+        return HRT(
+            config=self.config,
+            am=new_am,
+            lattice=self.lattice,
+            parent_hrt=self.name,
+            step_number=self.step_number + 1,
+            covers=self.covers
+        )
+    
+    def iter_row_basics(self):
+        """Iterate over row basic HLLSets."""
+        return iter(self.lattice.row_basic)
+    
+    def iter_col_basics(self):
+        """Iterate over column basic HLLSets."""
+        return iter(self.lattice.col_basic)
+
     def __hash__(self) -> int:
         return hash(self.name)
     

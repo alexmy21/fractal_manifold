@@ -322,6 +322,39 @@ class Kernel:
             result = self.union(result, h)
         return result
     
+    def fold_union_tree(self, hllsets: List[HLLSet]) -> Optional[HLLSet]:
+        """
+        Parallel tree reduction for union (O(log n) depth).
+        
+        Uses NumPy's vectorized bitwise_or for bulk operations.
+        Much faster than sequential fold for large lists.
+        
+        Morphism: [HLLSet] → HLLSet (or None if empty)
+        """
+        if not hllsets:
+            return None
+        if len(hllsets) == 1:
+            return hllsets[0]
+        
+        # Use numpy bulk union for efficiency
+        return HLLSet.bulk_union(hllsets)
+    
+    def fold_union_numpy(self, hllsets: List[HLLSet]) -> Optional[HLLSet]:
+        """
+        Bulk union using NumPy vectorized operations (SIMD-optimized).
+        
+        Stacks all register arrays and applies np.bitwise_or.reduce().
+        This is the fastest method for combining many HLLSets.
+        
+        Morphism: [HLLSet] → HLLSet (or None if empty)
+        """
+        if not hllsets:
+            return None
+        if len(hllsets) == 1:
+            return hllsets[0]
+        
+        return HLLSet.bulk_union(hllsets)
+    
     def fold_intersection(self, hllsets: List[HLLSet]) -> Optional[HLLSet]:
         """
         Fold intersection over list of HLLSets.

@@ -134,6 +134,36 @@ from .fractal_core import (
     build_token_tower,
 )
 
+# IICA Architecture (Immutability, Idempotence, Content Addressability)
+from .hrt_iica import (
+    HRT_IICA,
+    EmbeddedLUT,
+    LUTEntry,
+    HRTStack,
+    CommitInfo,
+    create_hrt_iica,
+    create_stack,
+)
+
+from .hrt_store import (
+    HRTPersistentStore,
+    MemoryHRTStore,
+    FileSystemHRTStore,
+    HRTSerializer,
+    CommitObject,
+    Blob,
+    create_memory_store,
+    create_file_store,
+    create_serializer,
+)
+
+from .manifold_os_iica import (
+    ManifoldOS_IICA,
+    ManifoldIICAConfig,
+    create_manifold_iica,
+    create_parallel_manifold,
+)
+
 from .constants import (
     P_BITS,
     SHARED_SEED,
@@ -217,6 +247,32 @@ __all__ = [
     'FractalTower',
     'build_token_tower',
     
+    # IICA Architecture (Current)
+    'HRT_IICA',
+    'EmbeddedLUT',
+    'LUTEntry',
+    'HRTStack',
+    'CommitInfo',
+    'create_hrt_iica',
+    'create_stack',
+    
+    # HRT Persistent Store
+    'HRTPersistentStore',
+    'MemoryHRTStore',
+    'FileSystemHRTStore',
+    'HRTSerializer',
+    'CommitObject',
+    'Blob',
+    'create_memory_store',
+    'create_file_store',
+    'create_serializer',
+    
+    # ManifoldOS IICA
+    'ManifoldOS_IICA',
+    'ManifoldIICAConfig',
+    'create_manifold_iica',
+    'create_parallel_manifold',
+    
     # Constants
     'P_BITS',
     'SHARED_SEED',
@@ -229,4 +285,4 @@ __all__ = [
     'ENTANGLEMENT_THRESHOLD',
 ]
 
-__version__ = "0.2.0"
+__version__ = "0.4.0"  # IICA architecture - clean slate

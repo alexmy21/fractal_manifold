@@ -264,9 +264,37 @@ cdef class HLLCore:
 
         return result
 
-    # =====================================================================
-    # Cardinality estimation
-    # =====================================================================
+    def add_from_hashes(self, list hashes, uint32_t p_bits):
+        """
+        Add batch of pre-computed hashes directly to registers.
+        
+        Args:
+            hashes: List of 64-bit integer hashes
+            p_bits: Precision bits (must match instance config)
+        """
+        cdef int i, n = len(hashes)
+        cdef uint64_t hash_val
+        cdef uint32_t bucket
+        cdef uint64_t remaining
+        cdef int tz
+        
+        # Determine bit mask for bucket index
+        cdef uint32_t mask = (1 << p_bits) - 1
+
+        for i in range(n):
+            hash_val = <uint64_t>hashes[i]
+            
+            # Extract bucket index (bottom P bits)
+            bucket = hash_val & mask
+            
+            # Remaining bits -> count trailing zeros
+            remaining = hash_val >> p_bits
+            tz = trailing_zeros_64(remaining)
+            
+            # Set bit in register
+            if tz < 32:
+                self.registers_view[bucket] = self.registers_view[bucket] | (<uint32_t>1 << tz)
+
 
     def cardinality(self):
         """

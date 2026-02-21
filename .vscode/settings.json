@@ -4,5 +4,15 @@
         "*.parquet": "duckdb.dataFileViewer",
         "*.csv": "duckdb.dataFileViewer",
         "*.tsv": "duckdb.dataFileViewer"
-    }
+    },
+    "duckdb.databases": [
+        {
+            "alias": "metadata",
+            "type": "file",
+            "path": "/home/alexmy/SGS/SGS_lib/fractal_manifold/fractal_manifold/metadata.duckdb",
+            "attached": false,
+            "readOnly": false
+        }
+    ],
+    "duckdb.defaultDatabase": "metadata"
 }

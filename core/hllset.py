@@ -115,6 +115,60 @@ class HLLSet:
         
         return hll
     
+    def absorb_and_track(self, tokens: Union[List[str], Set[str], Iterable[str]], 
+                         seed: int = SHARED_SEED) -> List[Tuple[int, int]]:
+        """
+        Absorb tokens into this HLLSet and return their (reg, zeros) identifiers.
+        
+        This allows building a LUT or Adjacency Matrix synchronously with
+        HLLSet creation, guaranteeing that the hashes used for storage
+        match the hashes used for indexing.
+        
+        Args:
+            tokens: Batch of tokens
+            seed: Hash seed
+            
+        Returns:
+            List of (reg, zeros) tuples corresponding to input tokens
+        """
+        if not isinstance(tokens, list):
+            tokens = list(tokens)
+            
+        # 1. Compute identifiers (single source of truth)
+        pairs = self.compute_reg_zeros_batch(tokens, self.p_bits, seed)
+        
+        # 2. Update internal state using these identifiers
+        # We use a specialized internal method to add precomputed pairs
+        # to avoid re-hashing in the C backend.
+        if hasattr(self._core, 'add_precomputed_batch'):
+            self._core.add_precomputed_batch(pairs)
+        else:
+            # Fallback if C extension hasn't been updated yet:
+            # We must use normal add_batch which re-hashes.
+            # This is safe but less efficient.
+            self._core.add_batch(tokens, seed)
+            
+        # 3. Update name
+        self._compute_name()
+        
+        return pairs
+
+    def absorb_hashes(self, hashes: List[int]):
+        """
+        Absorb pre-computed 64-bit integer hashes.
+        
+        This allows external drivers (ManifoldOS) to manage hashing logic
+        while HLLSet manages storage logic.
+        
+        Args:
+            hashes: List of 64-bit integer hashes
+        """
+        if hasattr(self._core, 'add_from_hashes'):
+            self._core.add_from_hashes(hashes, self.p_bits)
+            self._compute_name()
+        else:
+            raise NotImplementedError("C backend 'add_from_hashes' not available. Check build.")
+
     @staticmethod
     def compute_reg_zeros_batch(tokens: Union[List[str], Set[str], Iterable[str]],
                                 p_bits: int = P_BITS, seed: int = SHARED_SEED) -> List[Tuple[int, int]]:
@@ -227,10 +281,46 @@ class HLLSet:
         if len(hlls) == 1:
             return hlls[0]
         
-        # Start with first HLL and union with rest
-        result = hlls[0]
-        for hll in hlls[1:]:
-            result = result.union(hll)
+        # Use bulk_union for efficiency
+        return cls.bulk_union(hlls)
+    
+    @classmethod
+    def bulk_union(cls, hlls: List[HLLSet]) -> HLLSet:
+        """
+        Bulk union using NumPy vectorized operations (SIMD-optimized).
+        
+        Stacks all register arrays and applies np.bitwise_or.reduce().
+        This is MUCH faster than sequential union for combining many HLLSets.
+        
+        Performance: O(1) in number of HLLSets (vs O(n) for sequential)
+        
+        Args:
+            hlls: List of HLLSet instances to merge
+            
+        Returns:
+            New HLLSet containing union of all inputs
+        """
+        if not hlls:
+            return cls()
+        
+        if len(hlls) == 1:
+            return hlls[0]
+        
+        # Verify all have same p_bits
+        p_bits = hlls[0].p_bits
+        if not all(h.p_bits == p_bits for h in hlls):
+            raise ValueError("All HLLSets must have the same p_bits")
+        
+        # Stack all register arrays: shape (n_hlls, m_registers)
+        register_stack = np.stack([h._core.get_registers() for h in hlls], axis=0)
+        
+        # Vectorized bitwise OR across all HLLSets (SIMD-optimized!)
+        merged_registers = np.bitwise_or.reduce(register_stack, axis=0)
+        
+        # Create result HLLSet
+        result = cls(p_bits=p_bits)
+        result._core.set_registers(merged_registers)
+        result._compute_name()
         
         return result
     

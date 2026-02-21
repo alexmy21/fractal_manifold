@@ -129,7 +129,7 @@ But for hash $( g )$,
 where
 
 - $( p' )$ is determined from $( g(t) )$
-- (but here $( p' )$ is the same numerical value? 
+- (but here $( p' )$ is the same numerical value?
 - Actually $( p' )$ computed from $( g(t) )$ is probably not same as $( p )$ in first chain — but $( p )$ is in $( P )$ and $( P )$ is same set for both?
 - No, $( P )$ depends on $( p )$ function, which is fixed; $( p )$ is fixed map; $( P )$ = set of possible outputs of $( p )$ from any $( H )$. So $( P )$ same in both chains.)
 
@@ -137,7 +137,7 @@ But crucial:
 
 If $( t )$ is original token, $( p(h(t)) )$ in first chain equals some $( p(g(t)) )$ in second chain **only if** $( h(t) )$ and $( g(t) )$ have same $( P )$ leading bits and trailing zero count — unlikely unless $( h )$ and $( g )$ are specially related.
 
-So perhaps you mean: each $( p_i \in P )$ (a value in the image of $( p )$ under first hash) is used, but $( p )$ is fixed function; so from $( p_i )$ we can go back to its $( p )$-preimages $( \{ h_j \} )$, then $( h^{-1} )$ of those gives tokens. If we use $( g )$, we get a different $( p' )$ (actually still $( p )$ is same function, but applied to $( g(t) )$) and its preimages in $( G )$-space, then $( g^{-1} )$ of those gives tokens. 
+So perhaps you mean: each $( p_i \in P )$ (a value in the image of $( p )$ under first hash) is used, but $( p )$ is fixed function; so from $( p_i )$ we can go back to its $( p )$-preimages $( \{ h_j \} )$, then $( h^{-1} )$ of those gives tokens. If we use $( g )$, we get a different $( p' )$ (actually still $( p )$ is same function, but applied to $( g(t) )$) and its preimages in $( G )$-space, then $( g^{-1} )$ of those gives tokens.
 
 Then intersect these token sets — you get at least the original token.
 
@@ -149,7 +149,7 @@ Chain 2: $( t \xrightarrow{g} x' \xrightarrow{p} y' )$. Let $( S_2 = g^{-1}(p^{-
 You claim $( t \in S_1 \cap S_2 )$.
 
 This is true for $( S_1 )$ obviously (since $( y = p(h(t)) )$, $( h(t) \in p^{-1}(y) )$, so $( t \in h^{-1}(p^{-1}(y)) )$).  
-For $( S_2 )$: $( y' = p(g(t)) )$, so $( g(t) \in p^{-1}(y') )$, so $( t \in g^{-1}(p^{-1}(y')) )$. 
+For $( S_2 )$: $( y' = p(g(t)) )$, so $( g(t) \in p^{-1}(y') )$, so $( t \in g^{-1}(p^{-1}(y')) )$.
 
 Yes, so indeed $( t )$ is in both.
 
@@ -491,7 +491,7 @@ We have:
 
 - A family of token sets $( \{T_i\}_{i \in I} )$ with $( T = \bigcup_i T_i )$
 - For each $( T_i )$, we have a family of hash functions $( \{h_{i,\alpha}\}_{\alpha \in A_i} )$
-- For each hash, we get 
+- For each hash, we get
 
 ```math
 ( P_{i,\alpha} = \text{Im}(p \circ h_{i,\alpha}) \subset P )
@@ -499,7 +499,7 @@ We have:
 
 ( where $( P )$ is the fixed set of possible $( p )$-values )
 
-Let's denote 
+Let's denote
 
 ```math
 ( \mathcal{P} = \{P_{i,\alpha}\}_{i \in I, \alpha \in A_i} )
@@ -659,11 +659,11 @@ This gives a mathematically rigorous foundation for the "triangulation" idea you
 
 Let's make this explicit:
 
-**Horizontal composition**: 
+**Horizontal composition**:
 
 ```math
 ( \mathcal{T} = \{T_i\}_{i \in I} )
-``` 
+```
 
 - the collection of token sets, with lattice $( L )$ induced by their projections $( \{P_{i,\alpha}\} )$
 
@@ -990,7 +990,7 @@ The crucial insight: this entanglement doesn't come from matching the original p
 
 So when $( P_{\text{edge}}^{(m)} \cap P_{\text{edge}}^{(n)} \neq \emptyset )$, it means there exists a chain of projections of length \( m \) and a (possibly different) chain of length \( n \) that produce the same meta-projection value. This suggests these chains are **equivalent under some hidden symmetry** of the lattice.
 
-### **10. Categorical interpretation**
+### **10. The Categorical interpretation**
 
 In category theory terms, we have:
 

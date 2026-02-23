@@ -87,7 +87,7 @@ from .hllset import HLLSet, compute_sha1
 from .constants import P_BITS, SHARED_SEED
 
 if TYPE_CHECKING:
-    from .hrt import HLLSetLattice
+    from .deprecated.hrt import HLLSetLattice
 
 
 # =============================================================================

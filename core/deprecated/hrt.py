@@ -28,8 +28,8 @@ from .immutable_tensor import (
     ImmutableTensor, compute_element_hash, 
     compute_aggregate_hash, compute_structural_hash
 )
-from .hllset import HLLSet, compute_sha1
-from .constants import P_BITS as KERNEL_P_BITS
+from ..hllset import HLLSet, compute_sha1
+from ..constants import P_BITS as KERNEL_P_BITS
 
 
 # =============================================================================

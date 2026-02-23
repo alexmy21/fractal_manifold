@@ -62,7 +62,7 @@ from collections import defaultdict
 import numpy as np
 
 from .kernel import HLLSet, Kernel
-from .hrt import HLLSetLattice, BasicHLLSet, HRT
+from .deprecated.hrt import HLLSetLattice, BasicHLLSet, HRT
 
 
 # =============================================================================
@@ -402,7 +402,7 @@ class EntanglementPreservingOps:
         2. Preserve measurement relationships
         3. Result maintains entanglement invariants
         """
-        from .hrt import HRTConfig
+        from .deprecated.hrt import HRTConfig
         
         # Create new lattice
         config = lattice1.config
@@ -1498,7 +1498,7 @@ def compute_entanglement_network(hrts: List[HRT], kernel: Kernel) -> Dict[Tuple[
 
 def main():
     """Example entanglement computation."""
-    from .hrt import HRTConfig, HRTFactory
+    from .deprecated.hrt import HRTConfig, HRTFactory
     
     print("="*70)
     print("ENTANGLEMENT - Lattice-Based Implementation")

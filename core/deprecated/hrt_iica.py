@@ -60,9 +60,9 @@ import hashlib
 import json
 from enum import Enum, auto
 
-from .hllset import HLLSet, compute_sha1
+from ..hllset import HLLSet, compute_sha1
 from .immutable_tensor import ImmutableTensor, compute_element_hash, compute_structural_hash
-from .kernel import Kernel
+from ..kernel import Kernel
 
 
 # =============================================================================

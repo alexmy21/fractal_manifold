@@ -464,7 +464,7 @@ class HRTSerializer:
         Creates commit object pointing to blobs.
         Updates ref.
         """
-        from .hrt_iica import HRT_IICA
+        from .deprecated.hrt_iica import HRT_IICA
         
         # Serialize components to blobs
         am_blob = self._serialize_am(hrt.am)
@@ -499,8 +499,8 @@ class HRTSerializer:
         """
         Fetch HRT from store by commit hash.
         """
-        from .hrt_iica import HRT_IICA, EmbeddedLUT
-        from .hrt import AdjacencyMatrix, HLLSetLattice, HRTConfig
+        from .deprecated.hrt_iica import HRT_IICA, EmbeddedLUT
+        from .deprecated.hrt import AdjacencyMatrix, HLLSetLattice, HRTConfig
         
         commit = self.store.fetch_commit(commit_hash)
         if not commit:
@@ -580,14 +580,14 @@ class HRTSerializer:
     
     def _deserialize_config(self, blob: Blob) -> 'HRTConfig':
         """Deserialize HRT config."""
-        from .hrt import HRTConfig
+        from .deprecated.hrt import HRTConfig
         d = json.loads(blob.data.decode())
         return HRTConfig(**d)
     
     def _deserialize_am(self, blob: Blob, config: 'HRTConfig') -> 'AdjacencyMatrix':
         """Deserialize adjacency matrix."""
-        from .hrt import AdjacencyMatrix
-        from .immutable_tensor import ImmutableTensor
+        from .deprecated.hrt import AdjacencyMatrix
+        from .deprecated.immutable_tensor import ImmutableTensor
         import torch
         import numpy as np
         
@@ -602,7 +602,7 @@ class HRTSerializer:
     
     def _deserialize_lattice(self, blob: Blob, config: 'HRTConfig') -> 'HLLSetLattice':
         """Deserialize HLLSet lattice."""
-        from .hrt import HLLSetLattice, BasicHLLSet
+        from .deprecated.hrt import HLLSetLattice, BasicHLLSet
         from .hllset import HLLSet
         import numpy as np
         
@@ -636,7 +636,7 @@ class HRTSerializer:
     
     def _deserialize_lut(self, blob: Blob) -> 'EmbeddedLUT':
         """Deserialize embedded LUT."""
-        from .hrt_iica import EmbeddedLUT
+        from .deprecated.hrt_iica import EmbeddedLUT
         d = json.loads(blob.data.decode())
         return EmbeddedLUT.from_dict(d)
 

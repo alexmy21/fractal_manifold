@@ -1,16 +1,126 @@
-# Fractal Manifold v0.4.0
+# Fractal Manifold v0.6.0
 
-**IICA Architecture** - Immutability, Idempotence, Content Addressability
+**3D Sparse HRT** - N-Gram Layered Adjacency Matrix with Karoubi Envelope Structure
 
-A semantic memory system built on Hash Relational Tensors (HRT) with HyperLogLog probabilistic structures.
+A semantic memory system built on Hash Relational Tensors with GPU-accelerated sparse representation.
 
 ---
 
 ## Introduction
 
-Fractal Manifold is a **content-addressable semantic memory** that stores and retrieves structured knowledge using probabilistic data structures. The system is built on three foundational principles (**IICA**) that are enforced throughout every layer:
+Fractal Manifold is a **content-addressable semantic memory** implementing a computational **Karoubi idempotent category** with explicit splits. The system stores and retrieves structured knowledge using probabilistic data structures (HLLSets - HyperLogLog Sets), sparse GPU tensors (CUDA COO), and a novel 3D adjacency matrix that separates n-gram orders.
 
-### Design Philosophy
+**Important!** Despite its name, HLLSet is not a HyperLogLog cardinality estimator, which is based on Flajolet-Martin algorithms. HLLSets support all set operations making it ideal for building a computational implementation of the **Karoubi envelope** (idempotent completion).
+
+The key distinction:
+
+| HyperLogLog (Flajolet-Martin) | HLLSet |
+| --------- | ---- |
+| Cardinality estimator only | Full set operations |
+| Answers: "How many unique elements?" | Answers: union, intersection, difference, etc. |
+| Single-purpose | Algebraic structure |
+| — | Enables Karoubi envelope |
+
+The naming honors the computational breakthrough (probabilistic hashing, register-based structure), but HLLSet is a proper set with operations—which is exactly what makes it the right foundation for the idempotent category:
+
+- merge(A, B) = set union (idempotent: merge(A, A) = A)
+- intersect(A, B) = set intersection (for edge weights)
+- Content-addressable (hash-based identity)
+
+### The Elegant Core Insight
+
+The 3D dimension literally **adds structure** rather than complexity—the n-gram order becomes **topology** rather than metadata.
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                      3D ADJACENCY MATRIX                                │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│    AM[n, row, col] = |BasicHLLSet(row) ∩ BasicHLLSet(col)|              │
+│                                                                         │
+│    n = 0: 1-grams    "the", "cat", "sat"                                │
+│    n = 1: 2-grams    "the cat", "cat sat"                               │
+│    n = 2: 3-grams    "the cat sat"                                      │
+│                                                                         │
+│    Each layer is SEPARATE → no n-gram mixing                            │
+│    Edge weight = CONTEXT COVARIANCE (not term frequency!)               │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## Karoubi Envelope Structure
+
+The 3D HRT is a computational implementation of the **Karoubi envelope** (idempotent completion), where all idempotents split explicitly.
+
+### Categorical Foundation
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    KAROUBI ENVELOPE kar(C)                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  For each idempotent e: A → A where e ∘ e = e, find the split:          │
+│                                                                         │
+│    • Object B (the "image")                                             │
+│    • Projection p: A → B                                                │
+│    • Inclusion i: B → A                                                 │
+│    • p ∘ i = id_B                                                       │
+│    • i ∘ p = e                                                          │
+│                                                                         │
+│  IMPLEMENTATION MAPPING                                                 │
+│  ─────────────────────                                                  │
+│                                                                         │
+│    Karoubi Concept        │  3D HRT Implementation                      │
+│    ──────────────────     │  ──────────────────────                     │
+│    Idempotent e           │  merge(A, A) = A                            │
+│    Split objects          │  N-gram layers AM[n,:,:]                    │
+│    Projection p           │  layer_edges(n)                             │
+│    Inclusion i            │  with_ngram_edge(n, ...)                    │
+│    Image objects          │  BasicHLLSet3D                              │
+│                                                                         │
+│  THE EXPLICIT SPLIT                                                     │
+│  ──────────────────                                                     │
+│                                                                         │
+│    AM (mixed) ───p───▶ AM[n] (layer) ───i───▶ AM                      │
+│             └──────────── e = i ∘ p ────────────┘                       │
+│                           (idempotent)                                  │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### BasicHLLSets as Retracts
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    PULLBACK AS EDGE WEIGHT                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│  basic_hllsets_for_row(i)  =  projection onto row's "image"             │
+│  basic_hllsets_for_col(j)  =  projection onto col's "image"             │
+│                                                                         │
+│  Edge weight = |row_image ∩ col_image| = SIZE OF PULLBACK OBJECT        │
+│                                                                         │
+│  This makes AM[n,i,j] a CATEGORICAL INVARIANT measuring the             │
+│  pullback in the Karoubi category!                                      │
+│                                                                         │
+│    Row context ────────┐                                                │
+│                        ▼                                                │
+│                   ┌─────────┐                                           │
+│                   │ Pullback│ ← size = edge weight                      │
+│                   └─────────┘                                           │
+│                        ▲                                                │
+│    Col context ────────┘                                                │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+---
+
+## IICA Principles
+
+All operations maintain **IICA** (Immutability, Idempotence, Content Addressability):
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -23,185 +133,82 @@ Fractal Manifold is a **content-addressable semantic memory** that stores and re
 │                                                                         │
 │  IDEMPOTENCE          merge(A, A) == A                                  │
 │  ───────────          Repeated operations produce same result           │
-│                       Enables exactly-once semantics                    │
+│                       Ensures well-behaved idempotent category          │
 │                                                                         │
 │  CONTENT              Object identity = hash of content                 │
 │  ADDRESSABILITY       Same content → same name → deduplication          │
-│  ──────────────       Enables structural sharing & verification         │
+│  ──────────────       All splits are CANONICAL (content-addressed)      │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
-
-### The Foundation: HLLSet
-
-The IICA properties aren't imposed artificially—they emerge naturally from the **HyperLogLog Set (HLLSet)** primitive at the core of the system.
-
-**Important!** Despite its name, HLLSet is not a HyperLogLog cardinality estimator, which is based on Flajolet-Martin algorithms. We use the HyperLogLog prefix to honor the inventors and developers of this outstanding computational breakthrough.
-
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     HLLSet: NATURAL IICA                                │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  TOKEN ENCODING                                                         │
-│  ──────────────                                                         │
-│                                                                         │
-│    "apple"  ──hash──▶  0x7A3F...  ──split──▶  register │ value        │
-│                                                  │         │            │
-│                                         p_bits (15) │  leading zeros    │
-│                                                  ▼         ▼            │
-│                                              reg=29873  zeros=7         │
-│                                                                         │
-│  WHY IICA IS NATURAL                                                    │
-│  ───────────────────                                                    │
-│                                                                         │
-│  ✓ CONTENT ADDRESSABLE                                                  │
-│    • "apple" always hashes to same (reg, zeros)                         │
-│    • Token identity IS its hash encoding                                │
-│    • No separate ID assignment needed                                   │
-│                                                                         │
-│  ✓ IDEMPOTENT                                                           │
-│    • add("apple") twice = add("apple") once                             │
-│    • HLLSet stores each hash at (reg, zeros) position in HLLSet         │
-│    • Duplicates have no effect: (reg, zeros) is the same for given hash │
-│                                                                         │
-│  ✓ MERGE = UNION                                                        │
-│    • HLLSet merge is bit-wise OR                                        │
-│    • union(A, A) = A  (idempotent)                                      │
-│    • union(A, B) = union(B, A)  (commutative)                           │
-│    • union(union(A,B), C) = union(A, union(B,C))  (associative)         │
-│                                                                         │
-│  The architecture just adds IMMUTABILITY discipline                     │
-│  ─────────────────────────────────────────────────                      │
-│    • Return new HLLSet instead of mutating                              │
-│    • Enables history, rollback, parallel ops                            │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-**The key insight**: HLLSet's hash-based encoding makes content addressability and idempotence *intrinsic* properties. The architecture simply:
-
-1. Preserves these natural properties (doesn't break them)
-2. Adds immutability discipline (return new objects, never mutate)
-3. Propagates IICA to higher layers (HRT, persistence, orchestration)
-
-This is why the system "just works"—we're not fighting against the data structure, we're amplifying its natural algebraic properties.
-
-### Layered Architecture
-
-The system is organized in layers, each enforcing IICA:
-
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                                                                         │
-│  Layer 4: ORCHESTRATION                                                 │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  ManifoldOS_IICA                                                │    │
-│  │  • Coordinates ingestion, merge, persistence                    │    │
-│  │  • Parallel batch processing                                    │    │
-│  │  • Rollback & branching                                         │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                              │                                          │
-│  Layer 3: STORAGE            ▼                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  HRTPersistentStore + HRTStack                                  │    │
-│  │  • Git-like commits (blobs, refs, HEAD)                         │    │
-│  │  • Content-addressed deduplication                              │    │
-│  │  • In-memory history with rollback                              │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                              │                                          │
-│  Layer 2: TENSORS            ▼                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  HRT_IICA (AM + Lattice + LUT)                                  │    │
-│  │  • AM: Directed relationship graph (intersection cardinality)   │    │
-│  │  • Lattice: Row/column HLLSet structures                        │    │
-│  │  • LUT: Embedded token disambiguation                           │    │
-│  │  • Merge: Associative, Commutative, Idempotent                  │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                              │                                          │
-│  Layer 1: PRIMITIVES         ▼                                          │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  HLLSet + BasicHLLSet + Kernel + ImmutableTensor                │    │
-│  │  • HLLSet: Probabilistic cardinality estimation                 │    │
-│  │  • BasicHLLSet: Single (register, zeros) pair                   │    │
-│  │  • Kernel: Merge operations with IICA guarantees                │    │
-│  │  • ImmutableTensor: Content-hashed PyTorch tensors              │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-### IICA Enforcement by Module
-
-| Module | Immutability | Idempotence | Content Addressable |
-| -------- | -------------- | ------------- | --------------------- |
-| **HLLSet** | `add()` returns new HLLSet | `union(A,A) == A` | SHA1 of registers |
-| **ImmutableTensor** | Returns new tensor on ops | `max(A,A) == A` | SHA1 of data |
-| **Kernel** | Pure functions, no state | All ops idempotent | N/A (stateless) |
-| **HRT_IICA** | `merge()` returns new HRT | `merge(A,A) == A` | SHA1 of structure |
-| **EmbeddedLUT** | Idempotent hash functions | Union idempotent | Hash of entries |
-| **HRTStack** | Append-only history | Commit idempotent | Commit SHA |
-| **ManifoldOS_IICA** | HEAD moves, history preserved | Re-ingest = no-op | Via HRT names |
-
-### Key Data Flow
-
-```text
-Token Stream                    HLLSet Space                 AM Space
-────────────                    ────────────                 ────────
-                                    
-"the cat sat"     ──hash──▶    BasicHLLSets          ──coords──▶   AM[i,j]
-                               (reg, zeros)                     intersection
-                                    │                          cardinality
-                                    ▼                              │
-                               Lattice                             ▼
-                            row_basic[i]                      Directed
-                            col_basic[j]                        Graph
-                                    │                              │
-                                    └──────────┬───────────────────┘
-                                               ▼
-                                          W Matrix
-                                    (filtered topology)
-                                               │
-                                               ▼
-                                      Path Navigation
-                                    (HLLSet composition)
-```
-
-### Why This Matters
-
-1. **Parallelism**: Immutability enables lock-free concurrent operations
-2. **Reproducibility**: Content addressing ensures same input → same output
-3. **Efficiency**: Idempotence allows safe retries and deduplication
-4. **Time Travel**: Immutable history enables rollback and branching
-5. **Verification**: Content hashes enable integrity checking
 
 ---
 
-## Architecture Overview
+## Architecture
+
+### 3D Sparse HRT
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
-│                         FRACTAL MANIFOLD                                │
+│                         SparseHRT3D                                     │
 ├─────────────────────────────────────────────────────────────────────────┤
 │                                                                         │
-│  ┌─────────────┐     ┌─────────────┐     ┌─────────────┐                │
-│  │   HRT_IICA  │───▶│  HRTStack   │───▶│ Persistence │                │
-│  │  (core)     │     │  (history)  │     │  (storage)  │                │
-│  └─────────────┘     └─────────────┘     └─────────────┘                │
-│         │                                                               │
-│         ▼                                                               │
-│  ┌─────────────────────────────────────────────────────┐                │
-│  │                    HRT Structure                    │                │
-│  │  ┌────────┐  ┌─────────────┐  ┌──────────────────┐  │                │
-│  │  │   AM   │  │   Lattice   │  │   Embedded LUT   │  │                │
-│  │  │(edges) │  │ (HLLSets)   │  │ (token mapping)  │  │                │
-│  │  └────────┘  └─────────────┘  └──────────────────┘  │                │
-│  └─────────────────────────────────────────────────────┘                │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                     SparseAM3D                                  │    │
+│  │                                                                 │    │
+│  │   Layer 0 (1-grams)    Layer 1 (2-grams)    Layer 2 (3-grams)   │    │
+│  │   ┌────────────────┐   ┌────────────────┐   ┌────────────────┐  │    │
+│  │   │  AM[0,:,:]     │   │  AM[1,:,:]     │   │  AM[2,:,:]     │  │    │
+│  │   │  32K × 32K     │   │  32K × 32K     │   │  32K × 32K     │  │    │
+│  │   │  (sparse COO)  │   │  (sparse COO)  │   │  (sparse COO)  │  │    │
+│  │   └────────────────┘   └────────────────┘   └────────────────┘  │    │
+│  │                                                                 │    │
+│  │   ImmutableSparseTensor3D: indices[3, nnz] + values[nnz]        │    │
+│  │   CUDA GPU accelerated, content-addressed (SHA1)                │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
 │                                                                         │
-│  ┌─────────────────────────────────────────────────────┐                │
-│  │                 ManifoldOS_IICA                     │                │
-│  │           (orchestration + parallel ops)            │                │
-│  └─────────────────────────────────────────────────────┘                │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                   SparseLattice3D                               │    │
+│  │                                                                 │    │
+│  │   Per-layer connections:    layer_row_connections(n, row)       │    │
+│  │                             layer_col_connections(n, col)       │    │
+│  │                                                                 │    │
+│  │   Aggregated (for BasicHLLSet): all_row_connections(row)        │    │
+│  │                                 all_col_connections(col)        │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │                   BasicHLLSet3D                                 │    │
+│  │                                                                 │    │
+│  │   (n, reg, zeros) - includes n-gram layer!                      │    │
+│  │                                                                 │    │
+│  │   basic_hllsets_for_row(i) → List[BasicHLLSet3D]                │    │
+│  │   basic_hllsets_for_col(j) → List[BasicHLLSet3D]                │    │
+│  │   compute_edge_weight(i, j) → |row_basics ∩ col_basics|         │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                         │
+│  ┌─────────────────────────────────────────────────────────────────┐    │
+│  │   LUT (Lookup Table)                                            │    │
+│  │   FrozenSet of entries for token disambiguation                 │    │
+│  └─────────────────────────────────────────────────────────────────┘    │
+│                                                                         │
+└─────────────────────────────────────────────────────────────────────────┘
+```
+
+### Memory Efficiency
+
+```text
+┌─────────────────────────────────────────────────────────────────────────┐
+│                    SPARSE vs DENSE COMPARISON                           │
+├─────────────────────────────────────────────────────────────────────────┤
+│                                                                         │
+│   Dense 3D AM (3 × 32K × 32K × float32):          12.0 GB               │
+│   Sparse 3D AM (100K edges × 28 bytes):            2.7 MB               │
+│                                                                         │
+│   Memory savings:  ~4,500× smaller!                                     │
+│                                                                         │
+│   3 Dense HRTs:  36 GB  →  Exhausts 64GB laptop RAM!                    │
+│   3 Sparse HRTs:  8 MB  →  Easily fits in GPU VRAM!                     │
 │                                                                         │
 └─────────────────────────────────────────────────────────────────────────┘
 ```
@@ -210,179 +217,53 @@ Token Stream                    HLLSet Space                 AM Space
 
 ## Core Concepts
 
-### HRT (Hash Relational Tensor)
+### BasicHLLSet3D
 
-HRT is a semantic memory structure with three components:
-
-| Component | Purpose | Implementation |
-| ----------- | --------- | ---------------- |
-| **AM** (Adjacency Matrix) | Directed graph of token relationships | Sparse tensor, `AM[i,j] = \|row_i ∩ col_j\|` |
-| **Lattice** | HLLSet-based probabilistic structure | Row/column basic HLLSets |
-| **LUT** (Lookup Table) | Token disambiguation | `(reg, zeros) → tokens` |
-
-### AM Semantics
-
-**AM[i,j] = cardinality(basic_row[i] ∩ basic_col[j])**
-
-This is not term frequency—it's **context covariance**.
-
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    CONTEXT COVARIANCE (not TF!)                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│  Each basic HLLSet accumulates ALL tokens that hash to that position:   │
-│                                                                         │
-│    basic_row[i] = { all tokens with row_hash → i }  = CONTEXT_i         │
-│    basic_col[j] = { all tokens with col_hash → j }  = CONTEXT_j         │
-│                                                                         │
-│  The intersection measures SHARED CONTEXT:                              │
-│                                                                         │
-│    AM[i,j] = |CONTEXT_i ∩ CONTEXT_j|                                    │
-│            = "how much context do positions i and j share?"             │
-│                                                                         │
-│  ┌─────────────────────────────────────────────────────────────────┐    │
-│  │  TF (Term Frequency)         vs    Context Covariance           │    │
-│  │  ───────────────────               ──────────────────           │    │
-│  │  "how many times did              "how much context do          │    │
-│  │   token X appear here?"            these positions share?"      │    │
-│  │                                                                 │    │
-│  │  Counts single token              Measures relationship         │    │
-│  │  Unbounded accumulation           between accumulated sets      │    │
-│  │  Sensitive to duplicates          Semantic similarity           │    │
-│  └─────────────────────────────────────────────────────────────────┘    │
-│                                                                         │
-│  WHY THIS MATTERS                                                       │
-│  ────────────────                                                       │
-│                                                                         │
-│  • High AM[i,j] = positions i,j share many tokens = related contexts    │
-│  • Low AM[i,j] = positions i,j share few tokens = unrelated contexts    │
-│  • AM captures SEMANTIC PROXIMITY, not just co-occurrence               │
-│  • Natural measure for "how related are these two positions?"           │
-│                                                                         │
-└─────────────────────────────────────────────────────────────────────────┘
-```
-
-**Properties:**
-
-- **Bounded**: Value can't exceed `min(|row|, |col|)`
-- **Deterministic**: Same HLLSets → same intersection → same value
-- **IICA-safe**: Merge via bit-wise OR preserves idempotence
-- **Directed**: `AM[i,j] ≠ AM[j,i]` (captures token order)
-- **Not acyclic**: Allows duplicates ("the cat sat on the mat")
-
-### W (Weighted Topology Matrix)
-
->**W = Filtered AM preserving navigable topology**
-
-W's purpose is to preserve HLLSet topology:
-
-- A path in W lattice represents an original (or derived) HLLSet as basic HLLSet composition
-- Thresholds (tau, rho, epsilon) filter to keep topologically significant edges
-- W enables navigation from any HLLSet to related content
-
-```text
-Original HLLSet → decompose → [basic_1, basic_2, ..., basic_n]
-                                    ↓
-                              Path in W lattice
-                                    ↓
-                   Compose basics along path → Reconstruct HLLSet
-```
-
----
-
-## Retrieval Flow
-
-```text
-┌─────────────────────────────────────────────────────────────────┐
-│                        RETRIEVAL FLOW                           │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  1. QUERY           prompt → HLLSet (prompt_hll)                │
-│       ↓                                                         │
-│  2. W NAVIGATION    prompt_hll ↔ W lattice (topology)           │
-│       ↓             find related basic HLLSets via paths        │
-│  3. AM MAPPING      basics → (i,j) coords in AM                 │
-│       ↓             AM[i,j] = |basic_i ∩ basic_j|               │
-│  4. DISAMBIGUATION  (i,j) → LUT → candidate tokens              │
-│       ↓             resolve collisions                          │
-│  5. ORDER RESTORE   AM is DIRECTED: START → t₁ → t₂ → ... → END │
-│                     follow edges, duplicates OK (not acyclic!)  │
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
-```
-
-### Key Properties
-
-| Property | Why It Matters |
-| ---------- | ---------------- |
-| **AM is directed** | Captures `token_i → token_j` order (not symmetric) |
-| **AM not acyclic** | Allows duplicates in reconstructed text |
-| **START/END symbols** | Bound discovery, prevent infinite traversal |
-| **W preserves topology** | Navigate from any HLLSet to related content |
-| **Intersection cardinality** | Edge strength = how related two positions are |
-
----
-
-## IICA Properties
-
->**Immutability, Idempotence, Content Addressability**
+The atomic unit: `(n, reg, zeros)` triple.
 
 ```python
-# Immutability: All operations return new HRT
-hrt_new = hrt.merge(other, kernel)  # hrt unchanged
-
-# Idempotence: merge(A, A) == A
-assert hrt.merge(hrt, kernel).name == hrt.name
-
-# Content Addressability: name = SHA1(content)
-# Same content → same hash → same name
+BasicHLLSet3D(n=0, reg=42, zeros=7)   # 1-gram at position (42, 7)
+BasicHLLSet3D(n=1, reg=42, zeros=7)   # 2-gram at position (42, 7) - DIFFERENT LAYER!
 ```
 
-### Merge Algebra
+Same `(reg, zeros)` but different `n` → different positions in 3D AM.
 
-Merge is:
+### Edge3D
 
-- **Associative**: `merge(merge(A,B), C) == merge(A, merge(B,C))`
-- **Commutative**: `merge(A,B) == merge(B,A)`
-- **Idempotent**: `merge(A,A) == A`
-
-This enables **lossless parallel merge** via divide-and-conquer:
-
-```text
-[A, B, C, D, E, F, G, H]  →  8 HRTs
-   ↓ parallel merge pairs
-[AB, CD, EF, GH]          →  4 HRTs  
-   ↓ parallel merge pairs
-[ABCD, EFGH]              →  2 HRTs
-   ↓ final merge
-[ABCDEFGH]                →  1 HRT
-```
-
----
-
-## Persistence Model
-
-Git-like content-addressable storage:
-
-```text
-┌─────────────────────────────────────────┐
-│              Git Semantics              │
-├─────────────────────────────────────────┤
-│  Blob     │ Content-addressed data      │
-│  Commit   │ Points to blobs + parent    │
-│  Ref      │ Named pointer (branch)      │
-│  HEAD     │ Current commit              │
-└─────────────────────────────────────────┘
-```
+Each edge includes the n-gram layer:
 
 ```python
-# Push to persistent store
-mos.push()
+Edge3D(n=0, row=100, col=200, value=5.0)  # 1-gram edge
+Edge3D(n=1, row=100, col=201, value=3.0)  # 2-gram edge
+Edge3D(n=2, row=100, col=202, value=7.0)  # 3-gram edge
+```
 
-# Reload from store (simulates restart)
-mos2 = ManifoldOS_IICA(store_path=store_path)
-assert mos2.head.name == original_name  # Round-trip verified
+### Context Covariance (not TF!)
+
+```text
+AM[n, i, j] = |BasicHLLSet(row_i) ∩ BasicHLLSet(col_j)|
+              ─────────────────────────────────────────
+                        CONTEXT COVARIANCE
+
+• High value = positions share many connections = related contexts
+• Low value = positions share few connections = unrelated contexts
+• This is SEMANTIC PROXIMITY, not term frequency!
+```
+
+### Sliding Window Algorithm
+
+```text
+Token processing: 1-gram → 2-gram → 3-gram → shift → repeat
+
+"The quick brown fox jumps"
+
+Step 1: "The"                   → Layer 0
+Step 2: "The quick"             → Layer 1
+Step 3: "The quick brown"       → Layer 2
+Step 4: shift, "quick"          → Layer 0
+Step 5: "quick brown"           → Layer 1
+Step 6: "quick brown fox"       → Layer 2
+...
 ```
 
 ---
@@ -391,33 +272,44 @@ assert mos2.head.name == original_name  # Round-trip verified
 
 ```python
 from core import (
-    create_manifold_iica, create_parallel_manifold,
-    HRT_IICA, Kernel
+    SparseHRT3D,
+    Sparse3DConfig,
+    SparseAM3D,
+    SparseLattice3D,
+    Edge3D,
+    create_sparse_hrt_3d,
+    get_device,
+    __version__
 )
 
-# Create ManifoldOS orchestrator
-mos = create_manifold_iica()
+print(f"Fractal Manifold v{__version__}")
+print(f"Device: {get_device()}")
 
-# Ingest tokens
-mos.ingest(["hello", "world", "semantic", "memory"])
+# Create 3D HRT
+hrt = create_sparse_hrt_3d(p_bits=10, h_bits=32, max_n=3)
+print(f"Shape: {hrt.shape}")  # (3, 32770, 32770)
 
-# Access HRT
-hrt = mos.head
-print(f"HRT: {hrt.name}")
-print(f"LUT entries: {len(hrt.lut)}")
+# Add edges at different n-gram layers
+hrt1 = hrt.with_ngram_edge(1, 100, 200, 1.0)   # 1-gram
+hrt2 = hrt1.with_ngram_edge(2, 100, 201, 2.0)  # 2-gram
+hrt3 = hrt2.with_ngram_edge(3, 100, 202, 3.0)  # 3-gram
 
-# Parallel ingestion
-mos_parallel = create_parallel_manifold(workers=4)
-batches = [["batch1"], ["batch2"], ["batch3"], ["batch4"]]
-mos_parallel.parallel_ingest(batches)
+print(f"Layer stats: {hrt3.layer_stats()}")
+# {0: 1, 1: 1, 2: 1}
 
-# Persistence
-mos_persistent = ManifoldOS_IICA(store_path="./hrt_store")
-mos_persistent.ingest(["persistent", "data"])
-mos_persistent.push()
+# BasicHLLSets for BOTH rows and columns
+row_basics = hrt3.basic_hllsets_for_row(100)
+col_basics = hrt3.basic_hllsets_for_col(200)
+print(f"Row 100: {row_basics}")
+print(f"Col 200: {col_basics}")
 
-# Rollback
-mos.rollback(1)  # Go back one step
+# Compute edge weight (context covariance)
+weight = hrt3.compute_edge_weight(100, 200)
+print(f"Edge weight = |row ∩ col| = {weight}")
+
+# Merge (idempotent)
+merged = hrt3.merge(hrt3)
+assert merged.am.name == hrt3.am.name  # merge(A, A) = A ✓
 ```
 
 ---
@@ -426,63 +318,19 @@ mos.rollback(1)  # Go back one step
 
 ```text
 core/
-├── __init__.py          # Clean exports, version 0.4.0
-├── hrt.py               # HRT, HRTConfig, AdjacencyMatrix, HLLSetLattice
-├── hrt_iica.py          # HRT_IICA, EmbeddedLUT, LUTEntry, HRTStack
-├── hrt_store.py         # Persistence: HRTPersistentStore, Serializer
-├── manifold_os_iica.py  # ManifoldOS_IICA orchestrator
-├── immutable_tensor.py  # ImmutableTensor foundation
-├── hllset.py            # HLLSet probabilistic structures
-├── kernel.py            # Kernel (merge operations)
-└── algebra.py           # Algebraic operations
+├── __init__.py           # Exports, version 0.6.0
+├── sparse_hrt_3d.py      # SparseHRT3D, SparseAM3D, SparseLattice3D ← NEW
+├── sparse_tensor.py      # ImmutableSparseTensor (2D, CUDA COO)
+├── sparse_hrt.py         # SparseHRT (2D, kept for compatibility)
+├── hllset.py             # HLLSet probabilistic structures
+├── constants.py          # Configuration constants
+├── kernel.py             # Kernel (merge operations)
+├── algebra.py            # Algebraic operations
+└── deprecated/           # Dense implementations (moved)
+    ├── hrt.py            # Dense HRT (4GB per HRT!)
+    ├── hrt_iica.py       # Dense IICA
+    └── immutable_tensor.py
 ```
-
----
-
-## Design Decisions
-
-### Why Intersection Cardinality for AM?
-
-Previous approach (TF accumulation) had issues:
-
-- Unbounded values (duplicates inflate)
-- Not deterministic across merge orders
-- Breaks IICA guarantees
-
-Intersection cardinality:
-
-- `AM[i,j] = |basic_row[i] ∩ basic_col[j]|`
-- Bounded by min set size
-- Deterministic (set operation)
-- Idempotent (max merge preserves value)
-
-### Why Directed AM?
-
-Text has order: "cat sat" ≠ "sat cat"
-
-- `AM[i,j]` = evidence that position i precedes position j
-- Traverse from START to END to reconstruct
-- Cycles allowed (repeated words)
-
-### Why W Separate from AM?
-
-- **AM** = ground truth (all intersection cardinalities)
-- **W** = navigable topology (filtered by tau/rho/epsilon)
-- W preserves paths that reconstruct original HLLSets
-- Keeps navigation efficient while AM stores complete information
-
----
-
-## Roadmap
-
-- [x] IICA Architecture (v0.4.0)
-- [x] HRT_IICA with embedded LUT
-- [x] Git-like persistence
-- [x] Parallel merge/ingestion
-- [ ] GPU + Sparse tensors (CUDA)
-- [ ] AM intersection semantics implementation
-- [ ] START/END token handling
-- [ ] Full retrieval pipeline
 
 ---
 
@@ -490,8 +338,19 @@ Text has order: "cat sat" ≠ "sat cat"
 
 | Version | Milestone |
 | --------- | ----------- |
+| **0.6.0** | **3D Sparse HRT** - N-gram layered AM, Karoubi envelope structure |
+| 0.5.1 | Dense HRT moved to deprecated/ |
+| 0.5.0 | Sparse GPU Architecture (CUDA COO) |
 | 0.4.0 | IICA Architecture - Immutability, Idempotence, Content Addressability |
-| 0.3.x | Previous manifold implementation (deprecated) |
+
+---
+
+## References
+
+- **Karoubi Envelope**: Idempotent completion of a category, where all idempotents split
+- **HyperLogLog**: Probabilistic cardinality estimation (Flajolet et al.)
+- **COO Format**: Coordinate sparse tensor representation
+- **CUDA**: GPU acceleration for sparse tensor operations
 
 ---
 

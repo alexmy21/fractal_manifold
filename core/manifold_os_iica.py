@@ -68,8 +68,8 @@ from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor, as_compl
 import threading
 import time
 
-from .hrt import HRTConfig
-from .hrt_iica import HRT_IICA, EmbeddedLUT, LUTEntry, HRTStack, CommitInfo
+from .deprecated.hrt import HRTConfig
+from .deprecated.hrt_iica import HRT_IICA, EmbeddedLUT, LUTEntry, HRTStack, CommitInfo
 from .hrt_store import (
     HRTPersistentStore, MemoryHRTStore, FileSystemHRTStore,
     HRTSerializer, CommitObject, create_memory_store, create_file_store
@@ -117,7 +117,7 @@ def _ingest_batch_worker(
         (hllset_bytes, lut_entries, am_entries)
     """
     from .hllset import HLLSet
-    from .immutable_tensor import compute_element_hash
+    from .deprecated.immutable_tensor import compute_element_hash
     
     # Create HLLSet for batch using from_batch
     hllset = HLLSet.from_batch(tokens, p_bits=p_bits)
@@ -295,8 +295,8 @@ class ManifoldOS_IICA:
     
     def _create_delta_hrt(self, tokens: List[str], source_name: str) -> HRT_IICA:
         """Create delta HRT from tokens."""
-        from .hrt import AdjacencyMatrix, HLLSetLattice
-        from .immutable_tensor import compute_element_hash
+        from .deprecated.hrt import AdjacencyMatrix, HLLSetLattice
+        from .deprecated.immutable_tensor import compute_element_hash
         
         config = self.config.hrt_config
         
@@ -390,7 +390,7 @@ class ManifoldOS_IICA:
                                 source_prefix: str,
                                 use_processes: bool) -> List[HRT_IICA]:
         """Create delta HRTs in parallel."""
-        from .hrt import AdjacencyMatrix, HLLSetLattice
+        from .deprecated.hrt import AdjacencyMatrix, HLLSetLattice
         
         config = self.config.hrt_config
         delta_hrts = []

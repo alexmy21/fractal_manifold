@@ -55,7 +55,9 @@ This creates self-similar structure across scales.
 
 from .hllset import HLLSet, compute_sha1
 
-from .immutable_tensor import (
+# DEPRECATED: Dense tensor/HRT imports (moved to deprecated/)
+# These are kept for backward compatibility but will be removed in v1.0
+from .deprecated.immutable_tensor import (
     ImmutableTensor,
     TensorEvolution,
     TensorEvolutionTriple,
@@ -73,7 +75,9 @@ from .kernel import (
     SingularityReport,
 )
 
-from .hrt import (
+# DEPRECATED: Dense HRT (4GB per HRT - OOM on 64GB!)
+# Use SparseHRT instead (2MB per 100K edges)
+from .deprecated.hrt import (
     HRT,
     HRTConfig,
     HRTEvolution,
@@ -134,8 +138,8 @@ from .fractal_core import (
     build_token_tower,
 )
 
-# IICA Architecture (Immutability, Idempotence, Content Addressability)
-from .hrt_iica import (
+# DEPRECATED: IICA on dense tensors (use SparseHRT instead)
+from .deprecated.hrt_iica import (
     HRT_IICA,
     EmbeddedLUT,
     LUTEntry,
@@ -162,6 +166,35 @@ from .manifold_os_iica import (
     ManifoldIICAConfig,
     create_manifold_iica,
     create_parallel_manifold,
+)
+
+# Sparse GPU Architecture (CUDA COO tensors)
+from .sparse_tensor import (
+    ImmutableSparseTensor,
+    get_device,
+    sparse_zeros,
+    sparse_from_dense,
+)
+
+from .sparse_hrt import (
+    SparseHRT,
+    SparseHRTConfig,
+    SparseAM,
+    SparseLattice,
+    BasicHLLSet as SparseBasicHLLSet,
+    create_sparse_hrt,
+)
+
+# Sparse 3D Architecture (N-gram layered AM)
+from .sparse_hrt_3d import (
+    SparseHRT3D,
+    Sparse3DConfig,
+    SparseAM3D,
+    SparseLattice3D,
+    ImmutableSparseTensor3D,
+    BasicHLLSet3D,
+    Edge3D,
+    create_sparse_hrt_3d,
 )
 
 from .constants import (
@@ -273,6 +306,28 @@ __all__ = [
     'create_manifold_iica',
     'create_parallel_manifold',
     
+    # Sparse GPU Architecture (CUDA COO)
+    'ImmutableSparseTensor',
+    'get_device',
+    'sparse_zeros',
+    'sparse_from_dense',
+    'SparseHRT',
+    'SparseHRTConfig',
+    'SparseAM',
+    'SparseLattice',
+    'SparseBasicHLLSet',
+    'create_sparse_hrt',
+    
+    # Sparse 3D Architecture (N-gram layered)
+    'SparseHRT3D',
+    'Sparse3DConfig',
+    'SparseAM3D',
+    'SparseLattice3D',
+    'ImmutableSparseTensor3D',
+    'BasicHLLSet3D',
+    'Edge3D',
+    'create_sparse_hrt_3d',
+    
     # Constants
     'P_BITS',
     'SHARED_SEED',
@@ -285,4 +340,4 @@ __all__ = [
     'ENTANGLEMENT_THRESHOLD',
 ]
 
-__version__ = "0.4.0"  # IICA architecture - clean slate
+__version__ = "0.6.0"  # 3D AM with n-gram layers

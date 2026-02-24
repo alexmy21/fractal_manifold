@@ -209,6 +209,68 @@ from .constants import (
     ENTANGLEMENT_THRESHOLD,
 )
 
+# Manifold Algebra (v0.7) - Unified Processing Model
+from .manifold_algebra import (
+    # Universal ID
+    UniversalID,
+    content_to_index,
+    
+    # Sparse Matrices
+    SparseMatrix,
+    Sparse3DMatrix,
+    
+    # Projection
+    project_layer,
+    project_rows,
+    project_cols,
+    project_submatrix,
+    
+    # Transform
+    transpose,
+    transpose_3d,
+    normalize_rows,
+    normalize_3d,
+    scale,
+    
+    # Filter
+    filter_threshold,
+    filter_predicate,
+    
+    # Composition
+    merge_add,
+    merge_max,
+    compose_chain,
+    merge_3d_add,
+    
+    # Path
+    reachable_from,
+    path_closure,
+    
+    # Lift/Lower
+    lift_to_layer,
+    lower_aggregate,
+    
+    # Cross-structure
+    am_to_w,
+    w_to_am,
+    
+    # LUT & Tokens
+    START,
+    END,
+    LookupTable,
+    tokenize,
+    generate_ntokens,
+    
+    # Unified Processing
+    ProcessingResult,
+    input_to_hllset,
+    build_sub_hrt,
+    extend_with_context,
+    merge_hrt,
+    unified_process,
+    build_w_from_am,
+)
+
 __all__ = [
     # HLLSet
     'HLLSet',
@@ -338,6 +400,45 @@ __all__ = [
     'MIN_OVERLAP',
     'MAX_CHAIN_LENGTH',
     'ENTANGLEMENT_THRESHOLD',
+    
+    # Manifold Algebra (v0.7) - Unified Processing Model
+    'UniversalID',
+    'content_to_index',
+    'SparseMatrix',
+    'Sparse3DMatrix',
+    'project_layer',
+    'project_rows',
+    'project_cols',
+    'project_submatrix',
+    'transpose',
+    'transpose_3d',
+    'normalize_rows',
+    'normalize_3d',
+    'scale',
+    'filter_threshold',
+    'filter_predicate',
+    'merge_add',
+    'merge_max',
+    'compose_chain',
+    'merge_3d_add',
+    'reachable_from',
+    'path_closure',
+    'lift_to_layer',
+    'lower_aggregate',
+    'am_to_w',
+    'w_to_am',
+    'START',
+    'END',
+    'LookupTable',
+    'tokenize',
+    'generate_ntokens',
+    'ProcessingResult',
+    'input_to_hllset',
+    'build_sub_hrt',
+    'extend_with_context',
+    'merge_hrt',
+    'unified_process',
+    'build_w_from_am',
 ]
 
-__version__ = "0.6.0"  # 3D AM with n-gram layers
+__version__ = "0.7.0"  # Manifold Algebra - Unified Processing Model

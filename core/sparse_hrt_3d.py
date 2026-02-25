@@ -142,12 +142,14 @@ class BasicHLLSet3D:
     """
     n: int        # N-gram order (0-indexed)
     reg: int      # Register index (0 to 2^P - 1)
-    zeros: int    # Leading zeros count (1 to h_bits - p_bits)
+    zeros: int    # Leading zeros count (0 to h_bits - p_bits)
     
     def to_index(self, config: Sparse3DConfig) -> int:
-        """Convert (reg, zeros) to linear index for AM row/column."""
-        # Same as 2D - index within the layer
-        return 1 + self.reg * config.max_zeros + (self.zeros - 1)
+        """Convert (reg, zeros) to linear index for AM row/column.
+        
+        Uses the same formula as UniversalID.to_index for consistency.
+        """
+        return self.reg * (config.h_bits - config.p_bits + 1) + self.zeros
     
     def to_3d_index(self, config: Sparse3DConfig) -> Tuple[int, int]:
         """Convert to (layer, linear_index) for 3D AM."""

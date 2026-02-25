@@ -161,11 +161,30 @@ from .hrt_store import (
     create_serializer,
 )
 
+# DuckDB Store (preferred backend for ManifoldOS)
+from .duckdb_store import (
+    DuckDBStore,
+    create_duckdb_store,
+    create_memory_store as create_duckdb_memory_store,
+    create_file_store as create_duckdb_file_store,
+)
+
+# DEPRECATED: Use ManifoldOS from mf_os instead
 from .manifold_os_iica import (
     ManifoldOS_IICA,
     ManifoldIICAConfig,
     create_manifold_iica,
     create_parallel_manifold,
+)
+
+# ManifoldOS (mf_os) - Preferred orchestration layer
+from .mf_os import (
+    ManifoldOS,
+    ManifoldOSConfig,
+    TextFilePerceptron,
+    create_manifold_os,
+    create_memory_manifold,
+    create_persistent_manifold,
 )
 
 # Sparse GPU Architecture (CUDA COO tensors)
@@ -209,8 +228,8 @@ from .constants import (
     ENTANGLEMENT_THRESHOLD,
 )
 
-# Manifold Algebra (v0.7) - Unified Processing Model
-from .manifold_algebra import (
+# Manifold Algebra (mf_algebra) - Unified Processing Model
+from .mf_algebra import (
     # Universal ID
     UniversalID,
     content_to_index,
@@ -362,11 +381,25 @@ __all__ = [
     'create_file_store',
     'create_serializer',
     
-    # ManifoldOS IICA
+    # DuckDB Store (preferred)
+    'DuckDBStore',
+    'create_duckdb_store',
+    'create_duckdb_memory_store',
+    'create_duckdb_file_store',
+    
+    # ManifoldOS IICA (deprecated - use ManifoldOS)
     'ManifoldOS_IICA',
     'ManifoldIICAConfig',
     'create_manifold_iica',
     'create_parallel_manifold',
+    
+    # ManifoldOS (mf_os) - Preferred
+    'ManifoldOS',
+    'ManifoldOSConfig',
+    'TextFilePerceptron',
+    'create_manifold_os',
+    'create_memory_manifold',
+    'create_persistent_manifold',
     
     # Sparse GPU Architecture (CUDA COO)
     'ImmutableSparseTensor',

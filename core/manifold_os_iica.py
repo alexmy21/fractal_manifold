@@ -2,6 +2,10 @@
 ManifoldOS IICA: Git-like HRT Management with IICA Properties
 ==============================================================
 
+.. deprecated:: 
+    This module is deprecated. Use :mod:`core.mf_os` instead, which integrates
+    with the sparse 3D architecture (SparseHRT3D, SparseAM3D) and DuckDB backend.
+
 Design Principles (IICA):
 1. Immutability: HRT never changes after creation
 2. Idempotence: Duplicate operations have no effect

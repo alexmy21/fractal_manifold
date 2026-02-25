@@ -1,6 +1,6 @@
 # Fractal Manifold v0.7.0
 
-**Manifold Algebra** - Unified Processing with CRDT Semantics
+**Manifold Algebra** - Unified Processing with CRDT (Conflict-free Replicated Data Types) Semantics
 
 A semantic memory system where **ingestion = query = processing** through a single algebraic pipeline.
 

@@ -290,6 +290,17 @@ from .mf_algebra import (
     build_w_from_am,
 )
 
+# Sign Tokenizer (Uninflected Sign Systems)
+from .sign_tokenizer import (
+    tokenize_signs,
+    generate_sign_ngrams,
+    ngram_to_string,
+    build_cover_from_rows,
+    build_cover_from_cols,
+    build_cover_from_w,
+    query_signs,
+)
+
 __all__ = [
     # HLLSet
     'HLLSet',
@@ -472,6 +483,15 @@ __all__ = [
     'merge_hrt',
     'unified_process',
     'build_w_from_am',
+    
+    # Sign Tokenizer (Uninflected Sign Systems)
+    'tokenize_signs',
+    'generate_sign_ngrams',
+    'ngram_to_string',
+    'build_cover_from_rows',
+    'build_cover_from_cols',
+    'build_cover_from_w',
+    'query_signs',
 ]
 
 __version__ = "0.7.0"  # Manifold Algebra - Unified Processing Model

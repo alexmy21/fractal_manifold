@@ -721,7 +721,7 @@ The `FingerprintIndex` provides a **Bloom Filter Tower** - a two-level filter fo
 │     = max(all commit HLLSets)           │     No false negatives
 ├─────────────────────────────────────────┤
 │  Commit N   │  Commit N-1  │  ...       │  ← Levels: Individual commits
-│  HLLSet     │  HLLSet      │            │     Each is a HLLSet (works as abloom filter)
+│  HLLSet     │  HLLSet      │            │     Each is a HLLSet (works as a bloom filter)
 ├─────────────────────────────────────────┤
 │  Commit 2   │  Commit 1    │            │
 │  HLLSet     │  HLLSet      │            │

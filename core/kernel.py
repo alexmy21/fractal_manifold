@@ -1,13 +1,69 @@
 """
-HLLSet Kernel: Stateless Transformation Engine (Pure Morphisms)
+HLLSet Kernel: Foundation Layer for All Algebras
 
-The kernel provides pure transformation operations (morphisms) at multiple levels:
+The kernel provides PRIMITIVE operations that all algebras (mf_algebra, 
+metadata_algebra, future algebras) build upon.
 
 ================================================================================
-TWO-LAYER ARCHITECTURE: HLLSets vs Lattices
+ARCHITECTURAL ROLE
 ================================================================================
 
-**IMPORTANT: HLLSets are NOT sets containing tokens!**
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  manifold_os       - Orchestration, storage, external interfaces           │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  mf_algebra        │  metadata_algebra  │  future_algebra  │  ...          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  kernel            - HLLSet primitives, BSS, similarity, morphisms         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  hllset            - Core data structure + hash config                     │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+================================================================================
+PRIMITIVES PROVIDED
+================================================================================
+
+LAYER 1: HLLSet Operations (Set Algebra Primitives)
+- absorb: tokens → HLLSet
+- union, intersection, difference: HLLSet × HLLSet → HLLSet
+- add: HLLSet × tokens → HLLSet
+- cardinality: HLLSet → int
+
+LAYER 2: Similarity & BSS (Morphism Primitives)
+- similarity: HLLSet × HLLSet → float (Jaccard)
+- bss_tau: HLLSet × HLLSet → float (inclusion measure)
+- bss_rho: HLLSet × HLLSet → float (exclusion measure)
+- find_isomorphism: HLLSet × HLLSet → Morphism | None
+
+LAYER 3: Hash & Index (Addressing Primitives)
+- hash: content → int (delegates to HLLSet.hash)
+- hash_to_reg_zeros: content → (reg, zeros)
+- content_to_index: content → index
+- config: HashConfig (single source of truth)
+
+LAYER 4: Lattice Operations (Structure Primitives)
+- find_lattice_isomorphism: Lattice × Lattice → LatticeMorphism
+- validate_lattice_entanglement: [Lattice] → (bool, coherence)
+
+LAYER 5: Network Operations (Tensor Primitives)
+- build_tensor: [HLLSet] → 3D Tensor
+- measure_coherence: Tensor → float
+- detect_singularity: [HLLSet] → SingularityReport
+
+================================================================================
+DESIGN PRINCIPLES
+================================================================================
+
+- Stateless: No storage, no history - pure transformations
+- Pure: Same input → same output (deterministic)
+- Immutable: Operations return new HLLSets
+- Composable: All operations compose naturally
+- Foundation: Other algebras BUILD ON these primitives
+
+================================================================================
+IMPORTANT CONCEPTS
+================================================================================
+
+**HLLSets are NOT sets containing tokens!**
 
 HLLSets are probabilistic register structures ("anti-sets") that:
 - ABSORB tokens (hash them into registers)
@@ -15,66 +71,10 @@ HLLSets are probabilistic register structures ("anti-sets") that:
 - BEHAVE LIKE sets (union, intersection, cardinality estimation)
 - ARE NOT sets (no element retrieval, no membership test)
 
-The registers encode a probabilistic fingerprint of what was absorbed,
-but the original tokens are irretrievably lost.
+**Entanglement is between LATTICES, not HLLSets**
 
-================================================================================
-LAYER 1: HLLSet Operations (Register/Cardinality Layer)
-================================================================================
-- Works with individual HLLSets (register arrays)
-- Compares: Register states, estimated cardinalities, Jaccard similarity
-- find_isomorphism: Checks if two HLLSets have similar register patterns
-- This is register-level similarity, NOT true entanglement
-
-================================================================================
-LAYER 2: Lattice Operations (Structure Layer) - TRUE ENTANGLEMENT
-================================================================================
-- Works with HLLSetLattice objects (collections of HLLSets)
-- Compares STRUCTURE (degree distributions, graph topology)
-- find_lattice_isomorphism: Checks if two lattices have similar structure
-- validate_lattice_entanglement: TRUE entanglement between lattices
-- Individual HLLSets are IRRELEVANT - only the structural pattern matters
-- Two lattices can be entangled even when built from completely different inputs
-
-================================================================================
-CRITICAL DISTINCTION
-================================================================================
-
-| Concept          | Layer      | Compares        | Method                        |
-|------------------|------------|-----------------|-------------------------------|
-| Similarity       | HLLSet     | Registers       | find_isomorphism()            |
-| Cardinality      | HLLSet     | Estimated count | cardinality()                 |
-| ENTANGLEMENT     | Lattice    | Structure       | find_lattice_isomorphism()    |
-| Structural Match | Lattice    | Topology        | validate_lattice_entanglement()|
-
-================================================================================
-Level 1: Basic Operations (HLLSet/Register Layer)
-================================================================================
-- absorb: tokens → HLLSet (tokens are hashed and lost)
-- union, intersection, difference: HLLSet × HLLSet → HLLSet
-- add: HLLSet × tokens → HLLSet
-- find_isomorphism: HLLSet × HLLSet → Morphism (register similarity)
-
-================================================================================
-Level 2: Lattice Entanglement Operations (Structure Layer)
-================================================================================
-- find_lattice_isomorphism: Lattice × Lattice → LatticeMorphism
-- validate_lattice_entanglement: [Lattice] → (bool, coherence)
-
-================================================================================
-Level 3: Network Operations
-================================================================================
-- build_tensor: [HLLSet] → 3D Tensor
-- detect_singularity: Network → bool
-- measure_coherence: Network → float
-
-Design Principles:
-- Stateless: No storage, no history, no CAS
-- Pure: Same input → same output (deterministic)
-- Immutable: Operations return new HLLSets
-- Content-addressed: All outputs named by register hash
-- Composable: Morphisms compose naturally
-- Layer-aware: Distinguishes registers (HLLSet) from structure (Lattice)
+- Morphism: HLLSet × HLLSet → register similarity
+- LatticeMorphism: Lattice × Lattice → structural similarity (TRUE entanglement)
 """
 
 from __future__ import annotations
@@ -83,8 +83,15 @@ from dataclasses import dataclass, field
 import time
 import numpy as np
 
-from .hllset import HLLSet, compute_sha1
-from .constants import P_BITS, SHARED_SEED
+from .hllset import (
+    HLLSet, 
+    compute_sha1, 
+    P_BITS, 
+    SHARED_SEED, 
+    HashConfig, 
+    DEFAULT_HASH_CONFIG,
+    HashType,
+)
 
 if TYPE_CHECKING:
     from .deprecated.hrt import HLLSetLattice
@@ -293,13 +300,151 @@ class Kernel:
         """
         return a.diff(b)
     
+    def cardinality(self, h: HLLSet) -> int:
+        """
+        Estimated cardinality of HLLSet.
+        
+        Returns estimated count of absorbed tokens.
+        """
+        return int(h.cardinality())
+    
     # -------------------------------------------------------------------------
-    # Utility Operations (still pure)
+    # Hash & Index Primitives (Addressing Layer)
+    # -------------------------------------------------------------------------
+    
+    @property
+    def config(self) -> HashConfig:
+        """
+        Get the hash configuration (single source of truth).
+        
+        All algebras should use kernel.config for hash settings.
+        """
+        return DEFAULT_HASH_CONFIG
+    
+    def hash(self, content: str) -> int:
+        """
+        Compute hash of content.
+        
+        Delegates to HLLSet's centralized hash.
+        """
+        return HLLSet.hash(content)
+    
+    def hash_to_reg_zeros(self, content: str) -> Tuple[int, int]:
+        """
+        Compute (register, zeros) from content.
+        
+        This is the fundamental addressing operation.
+        """
+        return HLLSet.hash_to_reg_zeros(content)
+    
+    def content_to_index(self, content: str, h_bits: int = 32) -> int:
+        """
+        Compute matrix index from content.
+        
+        index = reg * (h_bits - p_bits + 1) + zeros
+        
+        Args:
+            content: String to hash
+            h_bits: Hash bits (default 32)
+            
+        Returns:
+            Matrix index in [0, m * (h_bits - p_bits + 1))
+        """
+        reg, zeros = self.hash_to_reg_zeros(content)
+        return reg * (h_bits - self.p_bits + 1) + zeros
+    
+    def index_range(self, h_bits: int = 32) -> int:
+        """
+        Maximum index value for given hash bits.
+        
+        Returns m * (h_bits - p_bits + 1) where m = 2^p_bits
+        """
+        return (1 << self.p_bits) * (h_bits - self.p_bits + 1)
+    
+    # -------------------------------------------------------------------------
+    # BSS Primitives (Similarity Layer)
     # -------------------------------------------------------------------------
     
     def similarity(self, a: HLLSet, b: HLLSet) -> float:
-        """Compute similarity between two HLLSets."""
+        """
+        Compute Jaccard similarity between two HLLSets.
+        
+        sim(A, B) = |A ∩ B| / |A ∪ B|
+        """
         return a.similarity(b)
+    
+    def bss_tau(self, a: HLLSet, b: HLLSet) -> float:
+        """
+        Compute BSS_τ (inclusion measure): |A ∩ B| / |A|
+        
+        Measures how much of A is included in B.
+        Higher τ means A is more contained in B.
+        
+        BSS_τ(A, B) = |A ∩ B| / |A|
+        
+        Used for morphism existence: morphism exists iff BSS_τ ≥ τ_threshold
+        """
+        card_a = a.cardinality()
+        if card_a == 0:
+            return 0.0
+        
+        intersection = a.intersect(b)
+        card_intersection = intersection.cardinality()
+        
+        return card_intersection / card_a
+    
+    def bss_rho(self, a: HLLSet, b: HLLSet) -> float:
+        """
+        Compute BSS_ρ (exclusion measure): |A - B| / |A|
+        
+        Measures how much of A is excluded from B.
+        Lower ρ means A is more contained in B.
+        
+        BSS_ρ(A, B) = |A - B| / |A| = 1 - BSS_τ(A, B)
+        
+        Used for morphism existence: morphism exists iff BSS_ρ ≤ ρ_threshold
+        """
+        return 1.0 - self.bss_tau(a, b)
+    
+    def morphism_exists(self, a: HLLSet, b: HLLSet, 
+                        tau_threshold: float = 0.7, 
+                        rho_threshold: float = 0.3) -> bool:
+        """
+        Check if morphism A → B exists under BSS thresholds.
+        
+        Morphism exists iff:
+        - BSS_τ(A, B) ≥ tau_threshold  (sufficient inclusion)
+        - BSS_ρ(A, B) ≤ rho_threshold  (limited exclusion)
+        
+        Note: tau_threshold + rho_threshold should equal 1.0 for consistency.
+        """
+        tau = self.bss_tau(a, b)
+        rho = self.bss_rho(a, b)
+        return tau >= tau_threshold and rho <= rho_threshold
+    
+    def bss_symmetric(self, a: HLLSet, b: HLLSet) -> Tuple[float, float, float, float]:
+        """
+        Compute symmetric BSS measures.
+        
+        Returns:
+            (tau_ab, rho_ab, tau_ba, rho_ba)
+            
+        tau_ab: inclusion A→B
+        rho_ab: exclusion A→B
+        tau_ba: inclusion B→A
+        rho_ba: exclusion B→A
+        
+        If tau_ab ≈ tau_ba and both high, A ≈ B (ε-isomorphism).
+        """
+        tau_ab = self.bss_tau(a, b)
+        rho_ab = self.bss_rho(a, b)
+        tau_ba = self.bss_tau(b, a)
+        rho_ba = self.bss_rho(b, a)
+        return (tau_ab, rho_ab, tau_ba, rho_ba)
+    
+    # -------------------------------------------------------------------------
+    # Batch Operations (Efficiency Layer)
+    # -------------------------------------------------------------------------
     
     def batch_absorb(self, token_sets: List[Set[str]]) -> List[HLLSet]:
         """
@@ -554,27 +699,29 @@ class Kernel:
         Creates a 'child' HLLSet that is structurally similar but potentially
         evolved. This mimics ICASRA's copy-with-mutation cycle.
         
+        Registers are uint32 bitmaps where bit k is set when an element
+        with k trailing zeros was observed. Mutation toggles random bits.
+        
         Morphism: HLLSet → HLLSet (non-deterministic due to mutation)
         """
-        # Get parent's register state
+        # Get parent's register state (uint32 bitmaps)
         registers = parent.dump_numpy().copy()
         
-        # Apply mutation: randomly perturb some registers
+        # Apply mutation: randomly toggle bits in selected registers
         if mutation_rate > 0 and len(registers) > 0:
             num_mutations = int(len(registers) * mutation_rate)
             if num_mutations > 0:
                 indices = np.random.choice(len(registers), num_mutations, replace=False)
                 for idx in indices:
-                    # Small perturbation - convert to int first to avoid overflow
-                    old_val = int(registers[idx])
-                    delta = np.random.randint(-1, 2)
-                    new_val = min(255, max(0, old_val + delta))
-                    registers[idx] = new_val
+                    # Toggle a random bit (0-31) in this register's bitmap
+                    bit_to_toggle = np.random.randint(0, 32)
+                    registers[idx] ^= np.uint32(1 << bit_to_toggle)
         
-        # Create child HLLSet (this is conceptual - actual implementation
-        # would need to rebuild HLLSet from modified registers)
-        # For now, we return a new HLLSet from similar tokens
-        return parent  # Placeholder - needs proper register reconstruction
+        # Create child HLLSet from mutated registers
+        child = HLLSet(p_bits=parent.p_bits)
+        child._core.set_registers(registers)
+        child._compute_name()
+        return child
     
     def commit(self, candidate: HLLSet) -> HLLSet:
         """
@@ -624,8 +771,10 @@ class Kernel:
             # Build relationship matrix for this installation
             # Use outer product to capture co-occurrence patterns
             if len(registers) > 0:
-                # Normalize registers
-                reg_norm = registers.astype(float) / (registers.max() + 1e-8)
+                # Normalize registers using population count (bits set in bitmap)
+                # Each register is uint32 bitmap; popcount gives observation density
+                popcounts = np.array([bin(r).count('1') for r in registers], dtype=float)
+                reg_norm = popcounts / 32.0  # Normalize by max possible bits
                 
                 # Relationship matrix (simplified - could use BSS)
                 tensor[:, :, k] = np.outer(reg_norm, reg_norm)

@@ -6,6 +6,62 @@ A semantic memory system where **ingestion = query = processing** through a sing
 
 ---
 
+## Anti-Sets (HLLSet)
+
+HLLSet (HyperLogLog Set) is the building block for everything in Fractal Manifold.
+
+**Important!** HLLSet is NOT a HyperLogLog cardinality estimator.
+
+HLLSets are **anti-sets**: they behave like sets but don't store elements.
+
+| Property | Anti-Set Behavior |
+| ---------- | ------------------ |
+| **Absorb** | `H.absorb(token)` - element absorbed into registers |
+| **Union** | `A \| B` - full set union |
+| **Intersection** | `A & B` - full set intersection |
+| **Difference** | `A - B` - set difference |
+| **Cardinality** | `H.cardinality()` - estimated count |
+| **Elements** | ❌ Not stored - absorbed, not contained |
+
+```python
+A = HLLSet()
+B = HLLSet()
+A.absorb("cat")
+B.absorb("dog")
+
+C = A | B           # union
+D = A & B           # intersection
+E = A - B           # difference
+print(C.cardinality())  # ~2
+```
+
+### Register Format (uint32 Bitmap)
+
+HLLSet uses a **bitmap register format** (`uint32`), not traditional HLL max-zeros. Each token that we are pushing into HLLSet converted in the pair (reg, zeros), where reg is register's index calculated from P leading bits of the hash 32-bit integer; and zeros - is the bit position that is number of trailing zeros in the token hash:
+
+```python
+from core.hllset import HLLSet, DEFAULT_HASH_CONFIG, REGISTER_DTYPE
+
+# Hash configuration is centralized
+print(DEFAULT_HASH_CONFIG)
+# HashConfig(hash_type=MURMUR3, p_bits=10, seed=42, h_bits=64)
+
+# Register format
+print(REGISTER_DTYPE)  # numpy.uint32
+
+# Each register is a 32-bit BITMAP where bit k is set
+# when an element with k trailing zeros was observed
+registers = hllset.dump_numpy()  # shape: (2^p_bits,), dtype: uint32
+
+# Set operations use bitwise operations:
+# - Union: registers_a | registers_b
+# - Intersection: registers_a & registers_b
+```
+
+This format enables full set algebra (union, intersection, difference) at the register level.
+
+---
+
 ## Core Insight
 
 Everything flows through the same pipeline:
@@ -39,9 +95,9 @@ This **glues together**:
 Same content → same index → everywhere.
 
 ```python
-from core.manifold_algebra import UniversalID
+from core.mf_algebra import UniversalID
 
-uid = UniversalID.from_content("cat sat", layer=0, p_bits=10)
+uid = UniversalID.from_content("cat sat", layer=0)
 print(uid)  # UniversalID(reg=523, zeros=4, layer=0)
 
 # Same content ALWAYS produces same (reg, zeros)
@@ -54,7 +110,7 @@ print(uid)  # UniversalID(reg=523, zeros=4, layer=0)
 
 | Vocabulary | Addressing |
 | ------------ | ----------- |
-| Hash-based | `content → SHA1 → (reg, zeros)` |
+| Hash-based | `content → MurmurHash64A → (reg, zeros)` |
 | Chinese | `character → lookup → (atom_id, context)` |
 | Visual | `pattern → codebook → (shape_id, scale)` |
 | Musical | `note → vocabulary → (pitch, harmonic)` |
@@ -119,7 +175,7 @@ report = scheme.collision_report()
 
 | Scheme | Pipeline | Index Range | AM/W Precision |
 | -------- | ---------- | ------------- | ---------------- |
-| `HashIdentifierScheme` | token → hash → (reg,zeros) → index | ~32K | Cloud (compression) |
+| `HashIdentifierScheme` | token → MurmurHash64A → (reg,zeros) → index | ~32K | Cloud (compression) |
 | `HashVocabularyScheme` | sign → hash → index | ~4B | **Exact** (per-sign) |
 | `VocabularyIdentifierScheme` | sign → sequential lookup | vocab size | Exact but arbitrary |
 
@@ -130,6 +186,8 @@ report = scheme.collision_report()
 - **VocabularyIdentifierScheme**: When you need specific index assignments
 
 **Vocabulary as HLLSet Fingerprint:**
+
+We can process Vocabulary as a normal input interpreting each sign in the vocabulary as a token. Result - HLLSet that could be used as a fingerprint of vocabulary and just because it's HLLSet you can compare given vocabulary with any other, you can monitor changes in vocabulary during the time and do it just by applying normal set operations: union, intersection, difference and so on.
 
 ```python
 # Vocabulary grows lazily
@@ -197,35 +255,6 @@ lut = LookupTable(config, identifier_scheme=vocab)
 ```
 
 The structures and operations are **co-adaptive** - they evolve together.
-
----
-
-## Anti-Sets (HLLSet)
-
-**Important!** HLLSet is NOT a HyperLogLog cardinality estimator.
-
-HLLSets are **anti-sets**: they behave like sets but don't store elements.
-
-| Property | Anti-Set Behavior |
-| ---------- | ------------------ |
-| **Absorb** | `H.absorb(token)` - element absorbed into registers |
-| **Union** | `A \| B` - full set union |
-| **Intersection** | `A & B` - full set intersection |
-| **Difference** | `A - B` - set difference |
-| **Cardinality** | `H.cardinality()` - estimated count |
-| **Elements** | ❌ Not stored - absorbed, not contained |
-
-```python
-A = HLLSet()
-B = HLLSet()
-A.absorb("cat")
-B.absorb("dog")
-
-C = A | B           # union
-D = A & B           # intersection
-E = A - B           # difference
-print(C.cardinality())  # ~2
-```
 
 ---
 
@@ -386,7 +415,7 @@ AM = w_to_am(W)             # Transition → Adjacency (denormalize)
 ## Unified Processing
 
 ```python
-from core.manifold_algebra import unified_process, build_w_from_am
+from core.mf_algebra import unified_process, build_w_from_am
 
 # Process ANY input (ingestion OR query - same code!)
 result = unified_process(
@@ -411,7 +440,7 @@ new_W = build_w_from_am(result.merged_hrt.am, config)
 
 ## Architecture
 
-### 3D Sparse HRT
+### 3D Sparse HRT (Hash Relational Tensor)
 
 ```text
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -449,6 +478,8 @@ new_W = build_w_from_am(result.merged_hrt.am, config)
 
 ### N-Token Model
 
+Some vocabularies can be very limited (for example, the whole Chinese vocabulary is only 80K hieroglyphs). To increase vocabulary size we are applying bootstrapping with an approach similar to n-grams (we call them n-tokens):
+
 ```text
 "The cat sat" → sliding window with START/END markers:
 
@@ -485,7 +516,7 @@ from core import (
     SparseHRT3D, Sparse3DConfig, SparseAM3D, SparseLattice3D,
     get_device, __version__
 )
-from core.manifold_algebra import (
+from core.mf_algebra import (
     LookupTable, START, END,
     unified_process, build_w_from_am,
     project_layer, transpose_3d, am_to_w
@@ -528,10 +559,13 @@ print(f"Query added {result.merged_hrt.nnz - current_hrt.nnz} new edges")
 ```text
 core/
 ├── __init__.py           # Exports, version 0.7.0
-├── manifold_algebra.py   # UniversalID, algebraic ops, unified pipeline ← NEW
+├── mf_algebra.py         # UniversalID, algebraic ops, unified pipeline
+├── mf_os.py              # ManifoldOS orchestration layer
+├── duckdb_store.py       # DuckDB-backed persistence
 ├── sparse_hrt_3d.py      # SparseHRT3D, SparseAM3D, SparseLattice3D
 ├── sparse_tensor.py      # ImmutableSparseTensor (CUDA COO)
-├── hllset.py             # HLLSet anti-set structures
+├── hllset.py             # HLLSet anti-set structures (MurmurHash64A, uint32 bitmap)
+├── sign_tokenizer.py     # Uninflected sign system tokenization
 ├── constants.py          # Configuration constants
 ├── kernel.py             # Kernel operations
 └── deprecated/           # Dense implementations (moved)
@@ -772,7 +806,7 @@ This is **not good for analytical work** (hash collisions blur precision), but *
 
 ## License
 
-See [LICENSE](LICENSE)
+See [Apache License Version 2.0](LICENSE)
 
 ## References
 

@@ -7,7 +7,22 @@ This module defines constants used throughout the fractal manifold system:
 LAYER 1: HLLSet Constants (Register Layer)
 - P_BITS: HLL precision bits (m = 2^P registers)
 - SHARED_SEED: Hash seed for reproducibility
-- HASH_FUNC: Standard hash function for tokens
+- HASH_FUNC: DEPRECATED - Use HLLSet.hash() instead
+
+HASH CONFIGURATION:
+    HLLSet is now the SINGLE SOURCE OF TRUTH for hash settings.
+    For hash operations, use:
+    
+        from .hllset import HLLSet, HashConfig, DEFAULT_HASH_CONFIG
+        
+        # Class-level (default config):
+        h = HLLSet.hash("token")
+        reg, zeros = HLLSet.hash_to_reg_zeros("token")
+        
+        # Access config:
+        config = HLLSet.get_default_config()
+        p_bits = config.p_bits
+        seed = config.seed
 
 LAYER 2: BSS Constants (Morphism Construction)
 - DEFAULT_TAU: Inclusion threshold for BSS_τ
@@ -20,15 +35,29 @@ LAYER 3: Fractal Loop Constants (Lattice Topology)
 - MAX_CHAIN_LENGTH: Maximum chain length for edge tokenization
 """
 import hashlib
+import warnings
 
 
 # =============================================================================
 # LAYER 1: HLLSet Constants (Register Layer)
 # =============================================================================
 
+# These are now DERIVED from hllset.py for backward compatibility.
+# The canonical source is HLLSet.get_default_config()
 SHARED_SEED = 42
 P_BITS = 10          # HLL precision (m = 2^P = 1024 registers)
-HASH_FUNC = lambda s: int(hashlib.sha256(s.encode()).hexdigest()[:8], 16) & 0x7FFFFFFF
+
+# DEPRECATED: Use HLLSet.hash() instead
+def _deprecated_hash_func(s: str) -> int:
+    """DEPRECATED: Use HLLSet.hash() from hllset.py instead."""
+    warnings.warn(
+        "HASH_FUNC is deprecated. Use HLLSet.hash() from hllset.py instead.",
+        DeprecationWarning,
+        stacklevel=2
+    )
+    return int(hashlib.sha256(s.encode()).hexdigest()[:8], 16) & 0x7FFFFFFF
+
+HASH_FUNC = _deprecated_hash_func
 
 
 # =============================================================================

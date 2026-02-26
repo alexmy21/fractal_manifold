@@ -63,10 +63,9 @@ from typing import (
 from dataclasses import dataclass, field
 from functools import reduce
 from collections import defaultdict
-import hashlib
 import numpy as np
 
-# Internal imports
+# Internal imports - structure layer
 from .sparse_hrt_3d import (
     SparseHRT3D,
     Sparse3DConfig,
@@ -76,11 +75,20 @@ from .sparse_hrt_3d import (
     BasicHLLSet3D,
     Edge3D,
 )
-from .hllset import HLLSet, compute_sha1
-from .constants import P_BITS
 
-# Default hash bits (standard HLL uses 32-bit hash)
-DEFAULT_H_BITS = 32
+# Internal imports - foundation layer (via hllset for core types)
+from .hllset import (
+    HLLSet, 
+    compute_sha1,
+    HashConfig,
+    HashType,
+    DEFAULT_HASH_CONFIG,
+    P_BITS,
+    SHARED_SEED,
+)
+
+# Default hash bits (from HLLSet's centralized config)
+DEFAULT_H_BITS = DEFAULT_HASH_CONFIG.h_bits
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -131,25 +139,32 @@ class HashIdentifierScheme:
     Default scheme for inflected languages where vocabulary is open-ended.
     Uses HLLSet-compatible (reg, zeros) addressing.
     
+    HASH CONFIGURATION: Uses HLLSet's centralized hash settings.
+    The hash function is delegated to HLLSet, ensuring consistency
+    across all modules.
+    
     Properties:
     - Covers all bits in HLLSet representation
     - Simple and consistent
     - Handles typos, variations, novel words naturally
     - Same content ALWAYS → same index
     """
-    p_bits: int = P_BITS
-    h_bits: int = DEFAULT_H_BITS
+    p_bits: int = DEFAULT_HASH_CONFIG.p_bits
+    h_bits: int = DEFAULT_HASH_CONFIG.h_bits
+    _hash_seed: int = DEFAULT_HASH_CONFIG.seed
+    
+    def __post_init__(self):
+        # Create a HashConfig for this scheme
+        self._config = HashConfig(
+            hash_type=DEFAULT_HASH_CONFIG.hash_type,
+            p_bits=self.p_bits,
+            seed=self._hash_seed,
+            h_bits=self.h_bits
+        )
     
     def to_index(self, content: str, layer: int = 0) -> int:
-        """Compute index from content hash."""
-        h = int(hashlib.sha1(content.encode()).hexdigest()[:8], 16)
-        reg = h & ((1 << self.p_bits) - 1)
-        remaining = h >> self.p_bits
-        zeros = 0
-        max_zeros = self.h_bits - self.p_bits
-        while zeros < max_zeros and (remaining & 1) == 0:
-            zeros += 1
-            remaining >>= 1
+        """Compute index from content hash using HLLSet's hash."""
+        reg, zeros = self._config.hash_to_reg_zeros(content)
         return reg * (self.h_bits - self.p_bits + 1) + zeros
     
     def index_range(self) -> int:
@@ -162,15 +177,12 @@ class HashIdentifierScheme:
     
     def to_reg_zeros(self, content: str) -> Tuple[int, int]:
         """Get (reg, zeros) for HLLSet compatibility."""
-        h = int(hashlib.sha1(content.encode()).hexdigest()[:8], 16)
-        reg = h & ((1 << self.p_bits) - 1)
-        remaining = h >> self.p_bits
-        zeros = 0
-        max_zeros = self.h_bits - self.p_bits
-        while zeros < max_zeros and (remaining & 1) == 0:
-            zeros += 1
-            remaining >>= 1
-        return (reg, zeros)
+        return self._config.hash_to_reg_zeros(content)
+    
+    @property
+    def config(self) -> HashConfig:
+        """Get the hash configuration."""
+        return self._config
 
 
 @dataclass
@@ -301,6 +313,10 @@ class HashVocabularyScheme:
     
     Note: Still stores (reg, zeros) per sign for HLLSet compatibility.
     
+    HASH CONFIGURATION: Uses HLLSet's centralized hash settings.
+    The hash function is delegated to HLLSet, ensuring consistency
+    across all modules.
+    
     Usage:
         scheme = HashVocabularyScheme()
         scheme.add_sign("你")  # Full hash = exact index
@@ -310,9 +326,9 @@ class HashVocabularyScheme:
         reg, zeros = scheme.to_reg_zeros("你")  # For HLLSet ops
         sign = scheme.get_sign(idx)  # Reverse lookup
     """
-    p_bits: int = P_BITS
-    h_bits: int = DEFAULT_H_BITS
-    _hash_seed: int = 0  # Fixed seed for determinism
+    p_bits: int = DEFAULT_HASH_CONFIG.p_bits
+    h_bits: int = DEFAULT_HASH_CONFIG.h_bits
+    _hash_seed: int = DEFAULT_HASH_CONFIG.seed
     
     # sign → full hash index
     known_signs: Dict[str, int] = field(default_factory=dict)
@@ -325,21 +341,18 @@ class HashVocabularyScheme:
     allow_unknown: bool = False
     unknown_index: int = -1
     
-    def _compute_full_hash(self, content: str) -> int:
-        """Compute full hash value (32-bit)."""
-        h = int(hashlib.sha1(content.encode()).hexdigest()[:8], 16)
-        return h ^ self._hash_seed
+    def __post_init__(self):
+        # Create a HashConfig for this scheme
+        self._config = HashConfig(
+            hash_type=DEFAULT_HASH_CONFIG.hash_type,
+            p_bits=self.p_bits,
+            seed=self._hash_seed,
+            h_bits=self.h_bits
+        )
     
-    def _hash_to_reg_zeros(self, h: int) -> Tuple[int, int]:
-        """Extract (reg, zeros) from hash for HLLSet compatibility."""
-        reg = h & ((1 << self.p_bits) - 1)
-        remaining = h >> self.p_bits
-        zeros = 0
-        max_zeros = self.h_bits - self.p_bits
-        while zeros < max_zeros and (remaining & 1) == 0:
-            zeros += 1
-            remaining >>= 1
-        return (reg, zeros)
+    def _compute_full_hash(self, content: str) -> int:
+        """Compute full hash value (32-bit) using HLLSet's seeded hash."""
+        return self._config.hash_with_seed(content)
     
     def to_index(self, content: str, layer: int = 0) -> int:
         """Get index for sign (full hash, exact addressing)."""
@@ -367,17 +380,23 @@ class HashVocabularyScheme:
         reg, zeros = self.to_reg_zeros(content)
         return reg * (self.h_bits - self.p_bits + 1) + zeros
     
+    @property
+    def config(self) -> HashConfig:
+        """Get the hash configuration."""
+        return self._config
+    
     def to_reg_zeros(self, content: str) -> Tuple[int, int]:
-        """Get (reg, zeros) for HLLSet compatibility."""
+        """Get (reg, zeros) for HLLSet compatibility using centralized hash."""
         if content in self.sign_to_reg_zeros:
             return self.sign_to_reg_zeros[content]
-        h = self._compute_full_hash(content)
-        return self._hash_to_reg_zeros(h)
+        # Use centralized hash_to_reg_zeros from HashConfig
+        return self._config.hash_to_reg_zeros(content)
     
     def add_sign(self, sign: str) -> int:
         """Add sign to vocabulary, return its full hash index."""
         h = self._compute_full_hash(sign)
-        reg_zeros = self._hash_to_reg_zeros(h)
+        # Use centralized hash_to_reg_zeros from HashConfig
+        reg_zeros = self._config.hash_to_reg_zeros(sign)
         
         self.known_signs[sign] = h
         self.index_to_sign[h] = sign
@@ -553,31 +572,50 @@ class HashVocabularyScheme:
     # VOCABULARY FINGERPRINT: HLLSet representation of vocabulary
     # ═══════════════════════════════════════════════════════════════════════
     
-    def to_hllset(self) -> np.ndarray:
+    def to_registers(self) -> np.ndarray:
         """
-        Get vocabulary as HLLSet fingerprint.
+        Get vocabulary fingerprint as raw HLL registers.
+        
+        Returns numpy array of register values, NOT an HLLSet object.
+        For actual HLLSet object, use to_hllset().
+        
+        Returns:
+            np.ndarray of shape (2^p_bits,) with dtype uint32 (bitmap format)
+        """
+        n_registers = 1 << self.p_bits
+        registers = np.zeros(n_registers, dtype=np.uint32)
+        
+        for sign, (reg, zeros) in self.sign_to_reg_zeros.items():
+            # Bitmap encoding: set bit at position (zeros) 
+            registers[reg] |= (1 << zeros)
+        
+        return registers
+    
+    def to_hllset(self) -> HLLSet:
+        """
+        Get vocabulary as HLLSet object.
         
         Enables:
         - O(1) vocabulary comparison via tau similarity
         - Cross-installation vocabulary matching
         - Social/domain profiling by vocabulary overlap
         - Lazy vocabulary buildup with instant fingerprint
+        - Full HLLSet operations (union, intersection, etc.)
         
         Returns:
-            HLLSet (numpy array of registers)
+            HLLSet object with vocabulary fingerprint
         """
-        n_registers = 1 << self.p_bits
-        hllset = np.zeros(n_registers, dtype=np.uint8)
-        
-        for sign, (reg, zeros) in self.sign_to_reg_zeros.items():
-            hllset[reg] = max(hllset[reg], zeros + 1)
-        
-        return hllset
+        # Efficient: create empty HLLSet and set registers directly
+        # (avoids re-hashing all vocabulary signs)
+        hll = HLLSet(p_bits=self.p_bits)
+        hll._core.set_registers(self.to_registers())
+        hll._compute_name()
+        return hll
     
     def vocabulary_cardinality(self) -> int:
         """Estimate vocabulary size from HLLSet (for verification)."""
-        hllset = self.to_hllset()
-        return estimate_cardinality(hllset)
+        registers = self.to_registers()
+        return estimate_cardinality(registers)
     
     def tau(self, other: 'HashVocabularyScheme') -> float:
         """
@@ -601,9 +639,9 @@ class HashVocabularyScheme:
         hll_self = self.to_hllset()
         hll_other = other.to_hllset()
         
-        # Intersection via min
-        intersection = np.minimum(hll_self, hll_other)
-        inter_card = estimate_cardinality(intersection)
+        # Use HLLSet intersection
+        intersection = hll_self.intersect(hll_other)
+        inter_card = intersection.cardinality()
         
         # tau = |A ∩ B| / min(|A|, |B|)
         self_card = len(self.known_signs)
@@ -623,22 +661,14 @@ class HashVocabularyScheme:
         hll_self = self.to_hllset()
         hll_other = other.to_hllset()
         
-        intersection = np.minimum(hll_self, hll_other)
-        union = np.maximum(hll_self, hll_other)
-        
-        inter_card = estimate_cardinality(intersection)
-        union_card = estimate_cardinality(union)
-        
-        if union_card == 0:
-            return 0.0
-        return inter_card / union_card
+        # Use HLLSet similarity (which is Jaccard)
+        return hll_self.similarity(hll_other)
     
     def contains_vocabulary(self, other: 'HashVocabularyScheme') -> bool:
         """
         Check if this vocabulary contains all signs from other.
         
-        Uses HLLSet: no false negatives, so if returns False, 
-        definitely doesn't contain all.
+        Uses exact set membership check on known signs.
         """
         for sign in other.known_signs:
             if sign not in self.known_signs:
@@ -684,7 +714,7 @@ class UniversalID:
     """
     Universal identifier used across all structures.
     
-    Computed from content hash:
+    Computed from content hash using HLLSet's centralized hash:
         hash → reg (which register) + zeros (leading zeros)
     
     This is the "glue" that connects HLLSet, AM, W, and Sheaf sections.
@@ -706,10 +736,16 @@ class UniversalID:
         return cls(reg=reg, zeros=zeros, layer=layer)
     
     @classmethod
-    def from_content(cls, content: str, layer: int, p_bits: int = P_BITS, h_bits: int = DEFAULT_H_BITS) -> 'UniversalID':
-        """Compute (reg, zeros) from content string."""
-        h = int(hashlib.sha1(content.encode()).hexdigest()[:8], 16)
-        return cls.from_hash(h, layer, p_bits, h_bits)
+    def from_content(cls, content: str, layer: int, 
+                     config: Optional[HashConfig] = None) -> 'UniversalID':
+        """
+        Compute (reg, zeros) from content string.
+        
+        Uses HLLSet's centralized hash configuration.
+        """
+        cfg = config or DEFAULT_HASH_CONFIG
+        reg, zeros = cfg.hash_to_reg_zeros(content)
+        return cls(reg=reg, zeros=zeros, layer=layer)
     
     def to_index(self, config: Sparse3DConfig) -> int:
         """Convert to matrix index."""
@@ -745,8 +781,8 @@ def content_to_index(
     """
     if scheme is not None:
         return scheme.to_index(content, layer)
-    # Default: use hash-based scheme
-    uid = UniversalID.from_content(content, layer, config.p_bits, config.h_bits)
+    # Default: use hash-based scheme (uses DEFAULT_HASH_CONFIG)
+    uid = UniversalID.from_content(content, layer)
     return uid.to_index(config)
 
 
@@ -1207,7 +1243,7 @@ def input_to_hllset(
         
         # Use UniversalID to compute consistent indices with LUT
         layer = 0 if ntoken in (START, END) else len(ntoken) - 1
-        uid = UniversalID.from_content(ntoken_text, layer, config.p_bits, config.h_bits)
+        uid = UniversalID.from_content(ntoken_text, layer)
         basic = BasicHLLSet3D(n=layer, reg=uid.reg, zeros=uid.zeros)
         basics.append(basic)
     
@@ -1990,12 +2026,13 @@ class CommitFingerprint:
         while temp > 0 and (temp & 1) == 0:
             zeros += 1
             temp >>= 1
-        expected_val = zeros + 1
-        return self.hllset[reg] >= expected_val
+        # Bitmap check: is bit at position 'zeros' set?
+        return bool(self.hllset[reg] & (1 << zeros))
     
     def tau(self, other: 'CommitFingerprint') -> float:
         """O(1) similarity between commits."""
-        intersection = np.minimum(self.hllset, other.hllset)
+        # Bitmap intersection = bitwise AND
+        intersection = self.hllset & other.hllset
         inter_card = estimate_cardinality(intersection)
         min_card = min(self.cardinality, other.cardinality)
         if min_card == 0:
@@ -2032,8 +2069,8 @@ class FingerprintIndex:
         # Individual commit fingerprints
         self.fingerprints: Dict[str, CommitFingerprint] = {}
         
-        # System fingerprint = union of all commits
-        self.system_fingerprint: np.ndarray = np.zeros(self.n_registers, dtype=np.uint8)
+        # System fingerprint = union of all commits (bitmap format)
+        self.system_fingerprint: np.ndarray = np.zeros(self.n_registers, dtype=np.uint32)
         self.system_cardinality: int = 0
         
         # Metadata
@@ -2058,8 +2095,8 @@ class FingerprintIndex:
         Returns:
             The created CommitFingerprint
         """
-        # Build HLLSet for this commit
-        hllset = self._indices_to_hllset(indices)
+        # Build HLL registers for this commit
+        hllset = self._indices_to_registers(indices)
         cardinality = len(indices)
         
         fingerprint = CommitFingerprint(
@@ -2073,15 +2110,15 @@ class FingerprintIndex:
         self.fingerprints[commit_id] = fingerprint
         self.total_commits += 1
         
-        # Update system fingerprint (union = max per register)
-        self.system_fingerprint = np.maximum(self.system_fingerprint, hllset)
+        # Update system fingerprint (bitmap union = bitwise OR)
+        self.system_fingerprint |= hllset
         self.system_cardinality = estimate_cardinality(self.system_fingerprint)
         
         return fingerprint
     
-    def _indices_to_hllset(self, indices: Set[int]) -> np.ndarray:
-        """Convert indices to HLLSet representation."""
-        hllset = np.zeros(self.n_registers, dtype=np.uint8)
+    def _indices_to_registers(self, indices: Set[int]) -> np.ndarray:
+        """Convert indices to HLL register array (bitmap format)."""
+        hllset = np.zeros(self.n_registers, dtype=np.uint32)
         
         for idx in indices:
             reg = idx % self.n_registers
@@ -2090,7 +2127,8 @@ class FingerprintIndex:
             while temp > 0 and (temp & 1) == 0:
                 zeros += 1
                 temp >>= 1
-            hllset[reg] = max(hllset[reg], zeros + 1)
+            # Bitmap encoding: set bit at position zeros
+            hllset[reg] |= (1 << zeros)
         
         return hllset
     
@@ -2110,8 +2148,8 @@ class FingerprintIndex:
         while temp > 0 and (temp & 1) == 0:
             zeros += 1
             temp >>= 1
-        expected_val = zeros + 1
-        return self.system_fingerprint[reg] >= expected_val
+        # Bitmap check: is bit at position 'zeros' set?
+        return bool(self.system_fingerprint[reg] & (1 << zeros))
     
     def find_candidate_commits(self, index: int) -> List[CommitFingerprint]:
         """
@@ -2145,12 +2183,13 @@ class FingerprintIndex:
         Returns:
             List of (similarity, fingerprint) tuples sorted by similarity
         """
-        query_hllset = self._indices_to_hllset(query_indices)
+        query_hllset = self._indices_to_registers(query_indices)
         query_card = len(query_indices)
         
         similarities = []
         for fp in self.fingerprints.values():
-            intersection = np.minimum(query_hllset, fp.hllset)
+            # Bitmap intersection = bitwise AND
+            intersection = query_hllset & fp.hllset
             inter_card = estimate_cardinality(intersection)
             min_card = min(query_card, fp.cardinality)
             tau = inter_card / min_card if min_card > 0 else 0.0
@@ -2197,9 +2236,10 @@ class FingerprintIndex:
     
     def rebuild_system_fingerprint(self):
         """Rebuild system fingerprint from all commits (after deletions)."""
-        self.system_fingerprint = np.zeros(self.n_registers, dtype=np.uint8)
+        self.system_fingerprint = np.zeros(self.n_registers, dtype=np.uint32)
         for fp in self.fingerprints.values():
-            self.system_fingerprint = np.maximum(self.system_fingerprint, fp.hllset)
+            # Bitmap union = bitwise OR
+            self.system_fingerprint |= fp.hllset
         self.system_cardinality = estimate_cardinality(self.system_fingerprint)
 
 
@@ -2252,8 +2292,8 @@ class StateSnapshot:
         Uses HLLSet intersection/min formula:
         tau(A, B) = |A ∩ B| / min(|A|, |B|)
         """
-        # Intersection cardinality via HLLSet
-        intersection = np.minimum(self.hllset, other.hllset)
+        # Intersection cardinality via HLLSet (bitmap: bitwise AND)
+        intersection = self.hllset & other.hllset
         inter_card = estimate_cardinality(intersection)
         
         min_card = min(self.cardinality, other.cardinality)
@@ -2265,8 +2305,9 @@ class StateSnapshot:
         """
         Jaccard similarity: |A ∩ B| / |A ∪ B|
         """
-        intersection = np.minimum(self.hllset, other.hllset)
-        union = np.maximum(self.hllset, other.hllset)
+        # Bitmap operations: AND for intersection, OR for union
+        intersection = self.hllset & other.hllset
+        union = self.hllset | other.hllset
         
         inter_card = estimate_cardinality(intersection)
         union_card = estimate_cardinality(union)
@@ -2277,28 +2318,39 @@ class StateSnapshot:
 
 
 def estimate_cardinality(hllset: np.ndarray) -> int:
-    """Estimate cardinality from HLLSet using HyperLogLog formula."""
-    # Simple estimation: count non-zero registers and apply correction
+    """
+    Estimate cardinality from HLLSet using HyperLogLog formula.
+    
+    Works with bitmap format: each register is uint32 where bit k is set
+    when an element with k trailing zeros was observed.
+    
+    For HLL formula, we need max_zeros + 1 (the traditional register value).
+    If highest set bit is at position k, then max_zeros = k, so value = k + 1.
+    """
     m = len(hllset)
     alpha = 0.7213 / (1 + 1.079 / m)  # Bias correction
     
-    # Harmonic mean of 2^(-register)
+    # Harmonic mean of 2^(-register_value) where register_value = max_zeros + 1
     Z = 0.0
-    zeros = 0
+    zero_registers = 0
     for val in hllset:
         if val == 0:
-            zeros += 1
-            Z += 1.0
+            zero_registers += 1
+            Z += 1.0  # 2^(-0) = 1 for empty register
         else:
-            # Clamp val to avoid overflow (max reasonable value is ~64)
-            clamped = min(int(val), 63)
+            # Highest set bit position = max_zeros observed
+            # Register value for HLL = max_zeros + 1
+            max_zeros = int(val).bit_length() - 1
+            register_value = max_zeros + 1
+            # Clamp to avoid overflow
+            clamped = min(register_value, 63)
             Z += 2.0 ** (-clamped)
     
     E = alpha * m * m / Z
     
     # Small range correction
-    if E <= 2.5 * m and zeros > 0:
-        E = m * np.log(m / zeros)
+    if E <= 2.5 * m and zero_registers > 0:
+        E = m * np.log(m / zero_registers)
     
     return int(E)
 
@@ -2556,8 +2608,8 @@ class BoundedEvolutionStore:
         if self.am is None:
             return
         
-        # Build HLLSet from current active indices
-        hllset = self._indices_to_hllset(self.state.active_indices)
+        # Build HLL registers from current active indices
+        hllset = self._indices_to_registers(self.state.active_indices)
         cardinality = len(self.state.active_indices)
         
         snapshot = StateSnapshot(
@@ -2573,24 +2625,24 @@ class BoundedEvolutionStore:
         )
         self.state_snapshots.append(snapshot)
     
-    def _indices_to_hllset(self, indices: Set[int]) -> np.ndarray:
-        """Convert set of indices to HLLSet representation."""
+    def _indices_to_registers(self, indices: Set[int]) -> np.ndarray:
+        """Convert set of indices to HLL register array (bitmap format)."""
         # Use config to determine HLLSet size
         n_registers = 2 ** self.config.p_bits
-        hllset = np.zeros(n_registers, dtype=np.uint8)
+        hllset = np.zeros(n_registers, dtype=np.uint32)
         
         for idx in indices:
             # Use idx to determine register and value
             # Register = first p_bits of hash
-            # Value = count trailing zeros + 1
             reg = idx % n_registers
-            # Count trailing zeros in idx (simplified)
+            # Count trailing zeros in idx
             zeros = 0
             temp = idx >> self.config.p_bits
             while temp > 0 and (temp & 1) == 0:
                 zeros += 1
                 temp >>= 1
-            hllset[reg] = max(hllset[reg], zeros + 1)
+            # Bitmap encoding: set bit at position zeros
+            hllset[reg] |= (1 << zeros)
         
         return hllset
     
@@ -2608,7 +2660,7 @@ class BoundedEvolutionStore:
     def current_state_hllset(self) -> StateSnapshot:
         """Get HLLSet representation of current state (without archiving)."""
         import time
-        hllset = self._indices_to_hllset(self.state.active_indices)
+        hllset = self._indices_to_registers(self.state.active_indices)
         return StateSnapshot(
             timestamp=time.time(),
             hllset=hllset,
@@ -2633,8 +2685,8 @@ class BoundedEvolutionStore:
         if not self.state_snapshots:
             return []
         
-        # Convert query to HLLSet
-        query_hllset = self._indices_to_hllset(query_indices)
+        # Convert query to HLL registers
+        query_hllset = self._indices_to_registers(query_indices)
         query_snapshot = StateSnapshot(
             timestamp=0,
             hllset=query_hllset,

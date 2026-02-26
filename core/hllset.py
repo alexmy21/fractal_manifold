@@ -20,16 +20,246 @@ Batch Processing Pattern:
     hll1 = HLLSet.from_batch(batch1)
     hll2 = HLLSet.from_batch(batch2)
     hll_combined = hll1.union(hll2)  # Immutable merge
+
+Hash Configuration:
+    HLLSet is the SINGLE SOURCE OF TRUTH for hash settings.
+    All hash-dependent modules should import from here:
+    
+        from .hllset import HLLSet, DEFAULT_HASH_CONFIG
+        
+    Hash config includes:
+    - hash_type: 'sha1', 'sha256', 'murmur3', etc.
+    - p_bits: HLL precision bits (register count = 2^p_bits)
+    - seed: Hash seed for reproducibility
+    
+    The hash function is available directly from HLLSet:
+        h = HLLSet.hash("token")  # Returns 32-bit int
+        reg, zeros = HLLSet.hash_to_reg_zeros("token")  # Returns (reg, zeros)
 """
 
 from __future__ import annotations
-from typing import Set, Tuple, Union, List, Optional, Iterable
+from typing import Set, Tuple, Union, List, Optional, Iterable, Callable
+from dataclasses import dataclass
+from enum import Enum
 import hashlib
+import struct
 import numpy as np
 from concurrent.futures import ThreadPoolExecutor
 import os
 
-from .constants import P_BITS, SHARED_SEED
+
+# =============================================================================
+# REGISTER FORMAT SPECIFICATION
+# =============================================================================
+# Each HLL register is a uint32 BITMAP (not uint8 max value).
+# Bit k is set when an element with k trailing zeros was observed.
+#
+# Operations:
+#   - Union:        OR  (registers_a | registers_b)
+#   - Intersection: AND (registers_a & registers_b)
+#   - Difference:   AND-NOT (registers_a & ~registers_b)
+#
+# This matches Julia HllSets.jl exactly.
+# =============================================================================
+
+REGISTER_DTYPE = np.uint32  # All HLL registers use this dtype
+
+
+# =============================================================================
+# MURMURHASH64A - Pure Python implementation matching HLLCore
+# =============================================================================
+
+def murmur_hash64a(data: bytes, seed: int = 0) -> int:
+    """
+    MurmurHash64A implementation matching HLLCore's Cython version.
+    
+    This is the exact same algorithm used in hll_core.pyx, ensuring
+    that HashConfig.hash() produces identical results to HLLCore.add_batch().
+    
+    Args:
+        data: Bytes to hash
+        seed: 64-bit seed value
+        
+    Returns:
+        64-bit unsigned hash value
+    """
+    M = 0xc6a4a7935bd1e995
+    R = 47
+    MASK64 = 0xFFFFFFFFFFFFFFFF
+    
+    length = len(data)
+    h = (seed ^ (length * M)) & MASK64
+    
+    # Process 8-byte chunks
+    nblocks = length // 8
+    for i in range(nblocks):
+        k = struct.unpack_from('<Q', data, i * 8)[0]
+        k = (k * M) & MASK64
+        k ^= (k >> R)
+        k = (k * M) & MASK64
+        h ^= k
+        h = (h * M) & MASK64
+    
+    # Process remaining bytes
+    tail = data[nblocks * 8:]
+    remaining = len(tail)
+    
+    if remaining >= 7:
+        h ^= tail[6] << 48
+    if remaining >= 6:
+        h ^= tail[5] << 40
+    if remaining >= 5:
+        h ^= tail[4] << 32
+    if remaining >= 4:
+        h ^= tail[3] << 24
+    if remaining >= 3:
+        h ^= tail[2] << 16
+    if remaining >= 2:
+        h ^= tail[1] << 8
+    if remaining >= 1:
+        h ^= tail[0]
+        h = (h * M) & MASK64
+    
+    # Finalize
+    h ^= (h >> R)
+    h = (h * M) & MASK64
+    h ^= (h >> R)
+    
+    return h
+
+
+# =============================================================================
+# HASH CONFIGURATION - SINGLE SOURCE OF TRUTH
+# =============================================================================
+
+class HashType(Enum):
+    """Supported hash algorithms."""
+    MURMUR3 = "murmur3"  # Fast, matches HLLCore's internal MurmurHash64
+    SHA1 = "sha1"        # 160-bit, standard for HLL (32-bit prefix used)
+    SHA256 = "sha256"    # 256-bit, higher entropy but slower
+
+
+@dataclass(frozen=True)
+class HashConfig:
+    """
+    Centralized hash configuration for the entire system.
+    
+    This is immutable and serves as the single source of truth for
+    all hash-related parameters used across hllset, mf_algebra, kernel, etc.
+    
+    IMPORTANT: Default is MURMUR3 to match HLLCore's internal hash.
+    This ensures consistency between HashConfig.hash_to_reg_zeros() and
+    HLLSet.from_batch() / HLLCore operations.
+    
+    Attributes:
+        hash_type: Algorithm to use ('murmur3', 'sha1', 'sha256')
+        p_bits: HLL precision bits (m = 2^p_bits registers)
+        seed: Hash seed for reproducibility
+        h_bits: Number of bits to extract from hash (default: 32)
+    
+    Example:
+        >>> config = HashConfig(hash_type=HashType.MURMUR3, p_bits=10, seed=42)
+        >>> h = config.hash("hello")
+        >>> reg, zeros = config.hash_to_reg_zeros("hello")
+    """
+    hash_type: HashType = HashType.MURMUR3  # Match HLLCore's internal hash
+    p_bits: int = 10       # 2^10 = 1024 registers
+    seed: int = 42         # Default seed for reproducibility
+    h_bits: int = 64       # Bits in hash (64 for MurmurHash64A)
+    
+    def hash(self, content: str) -> int:
+        """
+        Compute hash of content as integer.
+        
+        Returns:
+            64-bit unsigned integer hash (for MURMUR3)
+            32-bit for SHA variants
+        """
+        if self.hash_type == HashType.MURMUR3:
+            # Use our MurmurHash64A implementation matching HLLCore
+            h = murmur_hash64a(content.encode('utf-8'), self.seed)
+        elif self.hash_type == HashType.SHA1:
+            h = int(hashlib.sha1(content.encode()).hexdigest()[:8], 16)
+        elif self.hash_type == HashType.SHA256:
+            h = int(hashlib.sha256(content.encode()).hexdigest()[:8], 16)
+        else:
+            raise ValueError(f"Unsupported hash type: {self.hash_type}")
+        return h
+    
+    def hash_with_seed(self, content: str) -> int:
+        """
+        Compute seeded hash of content.
+        
+        For MURMUR3, seed is already applied in hash().
+        For SHA variants, combines content with seed string.
+        """
+        if self.hash_type == HashType.MURMUR3:
+            # Seed already applied in murmur_hash64a()
+            return self.hash(content)
+        else:
+            seeded = f"{self.seed}:{content}"
+            return self.hash(seeded)
+    
+    def hash_to_reg_zeros(self, content: str, use_seed: bool = True) -> Tuple[int, int]:
+        """
+        Compute (register_index, trailing_zeros) from content.
+        
+        This is the fundamental operation for HLL insertion and
+        identifier scheme indexing. Matches HLLCore's algorithm exactly:
+        - reg = hash & ((1 << p_bits) - 1)
+        - zeros = trailing zeros in (hash >> p_bits)
+        
+        Args:
+            content: String to hash
+            use_seed: Whether to apply seed (always True for MURMUR3)
+            
+        Returns:
+            (reg, zeros) tuple where:
+            - reg: Register index in [0, 2^p_bits)
+            - zeros: Trailing zeros count in remaining bits
+        """
+        # For MURMUR3, seed is always used (built into hash())
+        h = self.hash(content)
+        
+        # Bottom p_bits → register index (matches HLLCore)
+        reg = h & ((1 << self.p_bits) - 1)
+        
+        # Remaining bits → count trailing zeros (matches HLLCore)
+        remaining = h >> self.p_bits
+        
+        # Count trailing zeros
+        if remaining == 0:
+            zeros = self.h_bits - self.p_bits  # Max zeros (all bits were zero)
+        else:
+            # Find position of lowest set bit (trailing zeros count)
+            zeros = (remaining & -remaining).bit_length() - 1
+        
+        return (reg, zeros)
+    
+    @property
+    def num_registers(self) -> int:
+        """Number of HLL registers (m = 2^p_bits)."""
+        return 1 << self.p_bits
+    
+    @property  
+    def max_zeros(self) -> int:
+        """Maximum possible trailing zeros value."""
+        return self.h_bits - self.p_bits
+
+
+# Default configuration - THE SINGLE SOURCE OF TRUTH
+# Uses MURMUR3 to match HLLCore's internal MurmurHash64A
+DEFAULT_HASH_CONFIG = HashConfig(
+    hash_type=HashType.MURMUR3,
+    p_bits=10,
+    seed=42,
+    h_bits=64  # MurmurHash64A produces 64-bit hash
+)
+
+# Legacy constants for backward compatibility
+# These are now derived from DEFAULT_HASH_CONFIG
+P_BITS = DEFAULT_HASH_CONFIG.p_bits
+SHARED_SEED = DEFAULT_HASH_CONFIG.seed
 
 # Import C backend
 try:
@@ -57,22 +287,61 @@ class HLLSet:
     HLLSet with C/Cython backend.
     
     Treat instances as immutable. Methods return new instances.
+    
+    HLLSet is the SINGLE SOURCE OF TRUTH for hash configuration.
+    All hash-related operations should use HLLSet's hash methods:
+    
+        # Class-level (uses default config):
+        h = HLLSet.hash("token")
+        reg, zeros = HLLSet.hash_to_reg_zeros("token")
+        
+        # Instance-level (uses instance config):
+        hll = HLLSet.from_batch(tokens)
+        h = hll.hash_token("token")
+        reg, zeros = hll.token_to_reg_zeros("token")
     """
     
-    def __init__(self, p_bits: int = P_BITS, _core: Optional[HLLCore] = None):
+    # Class-level default configuration
+    _default_config: HashConfig = DEFAULT_HASH_CONFIG
+    
+    def __init__(self, p_bits: int = P_BITS, seed: int = SHARED_SEED,
+                 hash_type: HashType = HashType.SHA1,
+                 _core: Optional[HLLCore] = None,
+                 _config: Optional[HashConfig] = None):
         """
         Create HLLSet.
         
         Args:
             p_bits: Precision bits
+            seed: Hash seed for reproducibility
+            hash_type: Hash algorithm to use
             _core: Existing C HLLCore (internal use)
+            _config: Explicit config (overrides other params, internal use)
         """
-        self.p_bits = p_bits
+        # Use explicit config if provided, else build from params
+        if _config is not None:
+            self._config = _config
+        else:
+            self._config = HashConfig(
+                hash_type=hash_type,
+                p_bits=p_bits,
+                seed=seed
+            )
+        
+        self.p_bits = self._config.p_bits
+        self.seed = self._config.seed
+        self.hash_type = self._config.hash_type
+        
         self._core = _core if _core is not None else HLLCore(self.p_bits)
         self._name: Optional[str] = None
         
         # Compute name from content
         self._compute_name()
+    
+    @property
+    def config(self) -> HashConfig:
+        """Get the hash configuration for this HLLSet instance."""
+        return self._config
     
     def _compute_name(self):
         """Compute content-addressed name from registers."""
@@ -80,12 +349,88 @@ class HLLSet:
         self._name = compute_sha1(registers)
     
     # -------------------------------------------------------------------------
+    # Hash Methods - SINGLE SOURCE OF TRUTH
+    # -------------------------------------------------------------------------
+    
+    @classmethod
+    def hash(cls, content: str, config: Optional[HashConfig] = None) -> int:
+        """
+        Compute hash of content using default or provided config.
+        
+        This is the PRIMARY hash method for the entire system.
+        All modules should use HLLSet.hash() instead of direct hashlib calls.
+        
+        Args:
+            content: String to hash
+            config: Optional config (uses default if not provided)
+            
+        Returns:
+            64-bit unsigned integer hash (MURMUR3) or 32-bit (SHA variants)
+        """
+        cfg = config or cls._default_config
+        return cfg.hash(content)
+    
+    @classmethod 
+    def hash_to_reg_zeros(cls, content: str, config: Optional[HashConfig] = None) -> Tuple[int, int]:
+        """
+        Compute (register_index, trailing_zeros) from content.
+        
+        This is the PRIMARY reg/zeros computation for the entire system.
+        Matches HLLCore's internal algorithm exactly.
+        
+        Args:
+            content: String to hash
+            config: Optional config (uses default if not provided)
+            
+        Returns:
+            (reg, zeros) tuple
+        """
+        cfg = config or cls._default_config
+        return cfg.hash_to_reg_zeros(content)
+    
+    def hash_token(self, content: str) -> int:
+        """
+        Compute hash using this instance's configuration.
+        
+        Use when you need instance-specific hash settings.
+        """
+        return self._config.hash_with_seed(content)
+    
+    def token_to_reg_zeros(self, content: str) -> Tuple[int, int]:
+        """
+        Compute (reg, zeros) using this instance's configuration.
+        
+        Use when you need instance-specific hash settings.
+        """
+        return self._config.hash_to_reg_zeros(content)
+    
+    @classmethod
+    def get_default_config(cls) -> HashConfig:
+        """Get the default hash configuration."""
+        return cls._default_config
+    
+    @classmethod
+    def set_default_config(cls, config: HashConfig):
+        """
+        Set the default hash configuration.
+        
+        WARNING: This affects all new HLLSet instances and hash operations.
+        Use sparingly, typically at application startup.
+        """
+        cls._default_config = config
+        # Update legacy constants
+        global P_BITS, SHARED_SEED
+        P_BITS = config.p_bits
+        SHARED_SEED = config.seed
+
+    # -------------------------------------------------------------------------
     # Class Methods - Primary API (Immutable Batch Processing)
     # -------------------------------------------------------------------------
     
     @classmethod
     def from_batch(cls, tokens: Union[List[str], Set[str], Iterable[str]], 
-                   p_bits: int = P_BITS, seed: int = SHARED_SEED) -> HLLSet:
+                   p_bits: int = P_BITS, seed: int = SHARED_SEED,
+                   config: Optional[HashConfig] = None) -> HLLSet:
         """
         Create HLLSet from a batch of tokens (PRIMARY FACTORY METHOD).
         
@@ -94,8 +439,9 @@ class HLLSet:
         
         Args:
             tokens: Batch of tokens (list, set, or iterable)
-            p_bits: Precision bits for HLL
-            seed: Hash seed for consistency
+            p_bits: Precision bits for HLL (used if config not provided)
+            seed: Hash seed for consistency (used if config not provided)
+            config: Optional HashConfig (overrides p_bits/seed if provided)
             
         Returns:
             New immutable HLLSet containing all tokens
@@ -103,20 +449,30 @@ class HLLSet:
         Example:
             >>> hll = HLLSet.from_batch(['token1', 'token2', 'token3'])
             >>> print(hll.cardinality())
+            
+            # With explicit config:
+            >>> config = HashConfig(p_bits=12, seed=123)
+            >>> hll = HLLSet.from_batch(tokens, config=config)
         """
         if not isinstance(tokens, list):
             tokens = list(tokens)
         
-        hll = cls(p_bits=p_bits)
+        # Use config if provided, else build from params
+        if config is not None:
+            hll = cls(_config=config)
+            actual_seed = config.seed
+        else:
+            hll = cls(p_bits=p_bits, seed=seed)
+            actual_seed = seed
         
         if tokens:
-            hll._core.add_batch(tokens, seed)
+            hll._core.add_batch(tokens, actual_seed)
             hll._compute_name()
         
         return hll
     
-    def absorb_and_track(self, tokens: Union[List[str], Set[str], Iterable[str]], 
-                         seed: int = SHARED_SEED) -> List[Tuple[int, int]]:
+    def absorb_and_track(self, tokens: Union[List[str], Set[str], Iterable[str]],
+                         seed: Optional[int] = None) -> List[Tuple[int, int]]:
         """
         Absorb tokens into this HLLSet and return their (reg, zeros) identifiers.
         
@@ -126,16 +482,18 @@ class HLLSet:
         
         Args:
             tokens: Batch of tokens
-            seed: Hash seed
+            seed: Hash seed (uses instance seed if not provided)
             
         Returns:
             List of (reg, zeros) tuples corresponding to input tokens
         """
         if not isinstance(tokens, list):
             tokens = list(tokens)
+        
+        actual_seed = seed if seed is not None else self.seed
             
         # 1. Compute identifiers (single source of truth)
-        pairs = self.compute_reg_zeros_batch(tokens, self.p_bits, seed)
+        pairs = self.compute_reg_zeros_batch(tokens, self.p_bits, actual_seed)
         
         # 2. Update internal state using these identifiers
         # We use a specialized internal method to add precomputed pairs
@@ -146,7 +504,7 @@ class HLLSet:
             # Fallback if C extension hasn't been updated yet:
             # We must use normal add_batch which re-hashes.
             # This is safe but less efficient.
-            self._core.add_batch(tokens, seed)
+            self._core.add_batch(tokens, actual_seed)
             
         # 3. Update name
         self._compute_name()
@@ -171,7 +529,8 @@ class HLLSet:
 
     @staticmethod
     def compute_reg_zeros_batch(tokens: Union[List[str], Set[str], Iterable[str]],
-                                p_bits: int = P_BITS, seed: int = SHARED_SEED) -> List[Tuple[int, int]]:
+                                p_bits: int = P_BITS, seed: int = SHARED_SEED,
+                                config: Optional[HashConfig] = None) -> List[Tuple[int, int]]:
         """
         Compute (reg, zeros) pairs for tokens WITHOUT creating HLLSet.
         
@@ -190,8 +549,9 @@ class HLLSet:
         
         Args:
             tokens: Batch of tokens (list, set, or iterable)
-            p_bits: Precision bits (must match HLLSet creation)
-            seed: Hash seed (must match HLLSet creation)
+            p_bits: Precision bits (used if config not provided)
+            seed: Hash seed (used if config not provided)
+            config: Optional HashConfig (overrides p_bits/seed)
         
         Returns:
             List of (reg, zeros) tuples, one per token
@@ -207,6 +567,11 @@ class HLLSet:
         if not tokens:
             return []
         
+        # Use config values if provided
+        if config is not None:
+            p_bits = config.p_bits
+            seed = config.seed
+        
         # Use C backend to compute efficiently
         core = HLLCore(p_bits)
         return core.compute_reg_zeros_batch(tokens, seed)
@@ -214,7 +579,8 @@ class HLLSet:
     @classmethod
     def from_batches(cls, batches: List[Union[List[str], Set[str]]], 
                      p_bits: int = P_BITS, seed: int = SHARED_SEED,
-                     parallel: bool = False, max_workers: Optional[int] = None) -> HLLSet:
+                     parallel: bool = False, max_workers: Optional[int] = None,
+                     config: Optional[HashConfig] = None) -> HLLSet:
         """
         Create HLLSet from multiple batches with optional parallel processing.
         
@@ -226,10 +592,11 @@ class HLLSet:
         
         Args:
             batches: List of token batches
-            p_bits: Precision bits for HLL
-            seed: Hash seed (must be same for all batches)
+            p_bits: Precision bits for HLL (used if config not provided)
+            seed: Hash seed (used if config not provided)
             parallel: If True, process batches in parallel
             max_workers: Number of parallel workers (None = CPU count)
+            config: Optional HashConfig (overrides p_bits/seed)
             
         Returns:
             New immutable HLLSet containing union of all batches
@@ -239,19 +606,30 @@ class HLLSet:
             >>> hll = HLLSet.from_batches(batches, parallel=True)
         """
         if not batches:
-            return cls(p_bits=p_bits)
+            if config is not None:
+                return cls(_config=config)
+            return cls(p_bits=p_bits, seed=seed)
         
         if parallel:
             # TRUE parallel processing with C backend!
             max_workers = max_workers or os.cpu_count()
             with ThreadPoolExecutor(max_workers=max_workers) as executor:
-                hlls = list(executor.map(
-                    lambda b: cls.from_batch(b, p_bits=p_bits, seed=seed),
-                    batches
-                ))
+                if config is not None:
+                    hlls = list(executor.map(
+                        lambda b: cls.from_batch(b, config=config),
+                        batches
+                    ))
+                else:
+                    hlls = list(executor.map(
+                        lambda b: cls.from_batch(b, p_bits=p_bits, seed=seed),
+                        batches
+                    ))
         else:
             # Sequential processing
-            hlls = [cls.from_batch(b, p_bits=p_bits, seed=seed) for b in batches]
+            if config is not None:
+                hlls = [cls.from_batch(b, config=config) for b in batches]
+            else:
+                hlls = [cls.from_batch(b, p_bits=p_bits, seed=seed) for b in batches]
         
         # Merge all HLLSets via union
         return cls.merge(hlls)
@@ -461,7 +839,17 @@ class HLLSet:
         return self._core.cosine_similarity(other._core)
     
     def dump_numpy(self) -> np.ndarray:
-        """Get register vector as numpy array."""
+        """
+        Get register vector as numpy array.
+        
+        Returns:
+            np.ndarray of shape (2^p_bits,) with dtype uint32.
+            Each register is a 32-bit BITMAP where bit k is set
+            when an element with k trailing zeros was observed.
+            
+            This is NOT the traditional HLL register format (max zeros+1).
+            Use bitwise operations: OR for union, AND for intersection.
+        """
         return self._core.get_registers()
     
     def dump_roaring(self) -> bytes:
@@ -542,4 +930,13 @@ class HLLSet:
 
 
 # Export
-__all__ = ['HLLSet', 'compute_sha1', 'C_BACKEND_AVAILABLE']
+__all__ = [
+    'HLLSet', 
+    'HashConfig', 
+    'HashType',
+    'DEFAULT_HASH_CONFIG',
+    'REGISTER_DTYPE',
+    'compute_sha1', 
+    'C_BACKEND_AVAILABLE',
+    'murmur_hash64a',
+]

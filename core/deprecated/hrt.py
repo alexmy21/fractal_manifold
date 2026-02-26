@@ -274,7 +274,7 @@ class HLLSetLattice:
     @classmethod
     def empty(cls, config: HRTConfig) -> HLLSetLattice:
         """Create empty lattice with initialized basic HLLSets."""
-        from .hllset import HLLSet
+        from ..hllset import HLLSet
         
         p_bits = KERNEL_P_BITS
         dim = config.dimension
@@ -1728,7 +1728,7 @@ class HRTEvolution:
 
 def main():
     """Example HRT usage with immutable tensors."""
-    from .kernel import Kernel
+    from ..kernel import Kernel
     
     print("="*70)
     print("HASH RELATIONAL TENSOR (HRT) - Immutable PyTorch Implementation")

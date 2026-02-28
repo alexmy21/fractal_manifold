@@ -34,6 +34,11 @@ LAYER 2: Similarity & BSS (Morphism Primitives)
 - bss_rho: HLLSet × HLLSet → float (exclusion measure)
 - find_isomorphism: HLLSet × HLLSet → Morphism | None
 
+LAYER 2.5: DRN Evolution (Comparison Primitives)
+- drn_decompose: HLLSet × HLLSet → DRNDecomposition (D/R/N)
+- drn_delta: HLLSet × HLLSet → float (Noether measure)
+- drn_stability_ratio: HLLSet × HLLSet → float
+
 LAYER 3: Hash & Index (Addressing Primitives)
 - hash: content → int (delegates to HLLSet.hash)
 - hash_to_reg_zeros: content → (reg, zeros)
@@ -83,18 +88,34 @@ from dataclasses import dataclass, field
 import time
 import numpy as np
 
-from .hllset import (
-    HLLSet, 
-    compute_sha1, 
-    P_BITS, 
-    SHARED_SEED, 
-    HashConfig, 
-    DEFAULT_HASH_CONFIG,
-    HashType,
-)
+# Support both relative imports (when used as module) and direct execution
+try:
+    from .hllset import (
+        HLLSet, 
+        compute_sha1, 
+        P_BITS, 
+        SHARED_SEED, 
+        HashConfig, 
+        DEFAULT_HASH_CONFIG,
+        HashType,
+    )
+except ImportError:
+    # Direct execution: python core/kernel.py
+    from hllset import (
+        HLLSet, 
+        compute_sha1, 
+        P_BITS, 
+        SHARED_SEED, 
+        HashConfig, 
+        DEFAULT_HASH_CONFIG,
+        HashType,
+    )
 
 if TYPE_CHECKING:
-    from .deprecated.hrt import HLLSetLattice
+    try:
+        from .deprecated.hrt import HLLSetLattice
+    except ImportError:
+        from deprecated.hrt import HLLSetLattice
 
 
 # =============================================================================
@@ -180,7 +201,7 @@ class LatticeMorphism:
     Morphism between two HLLSet Lattices (structure-level ε-isomorphism).
     
     ┌─────────────────────────────────────────────────────────────────────────┐
-    │ THIS IS TRUE ENTANGLEMENT - comparing STRUCTURES, not content!         │
+    │ THIS IS TRUE ENTANGLEMENT - comparing STRUCTURES, not content!          │
     │                                                                         │
     │ - Compares LATTICE STRUCTURE (degree distribution, graph topology)      │
     │ - Nodes (HLLSets) are IRRELEVANT - only structural pattern matters      │
@@ -227,6 +248,144 @@ class LatticeMorphism:
         status = "≅" if self.is_isomorphism else "≇"
         return (f"LatticeMorphism({self.source_lattice_hash[:8]}... {status} "
                 f"{self.target_lattice_hash[:8]}..., match={self.overall_structure_match:.2%})")
+
+
+# -----------------------------------------------------------------------------
+# LAYER 2.5: DRN Evolution (Comparison Layer) - HLLSet evolution tracking
+# -----------------------------------------------------------------------------
+
+# Convergence threshold: stop recursion when total cardinality falls below this
+DRN_CONVERGENCE_THRESHOLD: float = 1.0  # Effectively empty
+
+
+@dataclass
+class DRNDecomposition:
+    """
+    D/R/N (Deleted/Retained/New) decomposition of HLLSet evolution.
+    
+    Evolution Equation:
+        hll(t+1) = D ∪ R ∪ N
+        
+        where:
+            D = hll(t) \\ hll(t+1)     # Deleted tokens
+            R = hll(t) ∩ hll(t+1)      # Retained tokens  
+            N = hll(t+1) \\ hll(t)     # New tokens
+    
+    Noether Stability Criterion:
+        |N(t)| ≈ |D(t)|  →  Δ(t) ≈ 0 at equilibrium
+    
+    Bidirectional Fractal Structure:
+        BACKWARD (History Tail):
+            D(t) = tokens that WERE in hll(t) but left.
+            Convergence depth backward = HISTORICAL MEMORY DEPTH
+        
+        FORWARD (Prediction Horizon):
+            N(t) = tokens that ARE NEW at time t.
+            Convergence depth forward = PREDICTION HORIZON
+    """
+    deleted: 'HLLSet'     # D: tokens that were removed
+    retained: 'HLLSet'    # R: tokens that persisted
+    new: 'HLLSet'         # N: tokens that were added
+    
+    # Convergence tracking
+    depth: int = 0                    # Current depth in fractal hierarchy
+    converged: bool = False           # True if below convergence threshold
+    
+    # Direction of recursion (for bidirectional analysis)
+    direction: str = 'backward'       # 'backward' (history) or 'forward' (prediction)
+    
+    # Optional recursive decomposition (for fractal depth > 0)
+    d_decomp: Optional['DRNDecomposition'] = None  # D = D_d ∪ D_r ∪ D_n
+    r_decomp: Optional['DRNDecomposition'] = None  # R = R_d ∪ R_r ∪ R_n
+    n_decomp: Optional['DRNDecomposition'] = None  # N = N_d ∪ N_r ∪ N_n
+    
+    @property
+    def delta(self) -> float:
+        """
+        Noether symmetry measure: Δ = |N| - |D|
+        
+        At equilibrium: Δ → 0 (creation balances destruction)
+        """
+        return self.new.cardinality() - self.deleted.cardinality()
+    
+    @property
+    def d_card(self) -> float:
+        """Cardinality of deleted tokens."""
+        return self.deleted.cardinality()
+    
+    @property
+    def r_card(self) -> float:
+        """Cardinality of retained tokens."""
+        return self.retained.cardinality()
+    
+    @property
+    def n_card(self) -> float:
+        """Cardinality of new tokens."""
+        return self.new.cardinality()
+    
+    @property
+    def total_card(self) -> float:
+        """Total cardinality: |D| + |R| + |N|"""
+        return self.d_card + self.r_card + self.n_card
+    
+    @property
+    def stability_ratio(self) -> float:
+        """
+        Stability ratio: |N - D| / (|N| + |D|)
+        
+        0 = perfect stability (N ≈ D)
+        1 = maximum instability
+        """
+        total = self.n_card + self.d_card
+        if total == 0:
+            return 0.0
+        return abs(self.delta) / total
+    
+    def is_converged(self, threshold: float = DRN_CONVERGENCE_THRESHOLD) -> bool:
+        """
+        Check if decomposition has converged (below noise floor).
+        
+        Convergence occurs when total cardinality < threshold,
+        meaning there's no meaningful signal left to decompose.
+        """
+        return self.total_card < threshold
+    
+    def convergence_depth(self) -> int:
+        """
+        Find the depth at which this decomposition converges.
+        
+        Returns the maximum depth reached before hitting the noise floor.
+        """
+        if self.converged or (self.d_decomp is None and self.r_decomp is None and self.n_decomp is None):
+            return self.depth
+        
+        max_sub_depth = self.depth
+        for sub in [self.d_decomp, self.r_decomp, self.n_decomp]:
+            if sub is not None:
+                max_sub_depth = max(max_sub_depth, sub.convergence_depth())
+        
+        return max_sub_depth
+    
+    def summary(self) -> Dict[str, Any]:
+        """Get summary statistics."""
+        return {
+            "D": int(self.d_card),
+            "R": int(self.r_card),
+            "N": int(self.n_card),
+            "delta": round(self.delta, 2),
+            "stability_ratio": round(self.stability_ratio, 4),
+            "depth": self.depth,
+            "converged": self.converged,
+            "has_recursive": any([
+                self.d_decomp is not None,
+                self.r_decomp is not None,
+                self.n_decomp is not None
+            ])
+        }
+    
+    def __repr__(self) -> str:
+        conv = "✓" if self.converged else ""
+        return f"DRN(D={int(self.d_card)}, R={int(self.r_card)}, N={int(self.n_card)}, Δ={self.delta:.1f}, d={self.depth}{conv})"
 
 
 # =============================================================================
@@ -441,6 +600,71 @@ class Kernel:
         tau_ba = self.bss_tau(b, a)
         rho_ba = self.bss_rho(b, a)
         return (tau_ab, rho_ab, tau_ba, rho_ba)
+    
+    # -------------------------------------------------------------------------
+    # DRN Evolution Primitives (Comparison Layer)
+    # -------------------------------------------------------------------------
+    
+    def drn_decompose(self, hll_prev: HLLSet, hll_curr: HLLSet) -> 'DRNDecomposition':
+        """
+        Compute D/R/N decomposition between two consecutive HLLSets.
+        
+        Evolution Equation:
+            hll(t+1) = D ∪ R ∪ N
+            
+            where:
+                D = hll(t) \\ hll(t+1)     # Deleted tokens
+                R = hll(t) ∩ hll(t+1)      # Retained tokens  
+                N = hll(t+1) \\ hll(t)     # New tokens
+        
+        Morphism: HLLSet × HLLSet → DRNDecomposition
+        
+        Args:
+            hll_prev: HLLSet at time t
+            hll_curr: HLLSet at time t+1
+            
+        Returns:
+            DRNDecomposition with computed D, R, N sets
+        """
+        # R = intersection(prev, curr) - tokens in both
+        retained = self.intersection(hll_prev, hll_curr)
+        
+        # D = prev - R (deleted tokens)
+        deleted = self.difference(hll_prev, retained)
+        
+        # N = curr - R (new tokens)
+        new = self.difference(hll_curr, retained)
+        
+        return DRNDecomposition(
+            deleted=deleted, 
+            retained=retained, 
+            new=new,
+            depth=0,
+            converged=False
+        )
+    
+    def drn_delta(self, hll_prev: HLLSet, hll_curr: HLLSet) -> float:
+        """
+        Compute Noether delta: Δ = |N| - |D|
+        
+        At equilibrium: Δ → 0 (creation balances destruction)
+        
+        Morphism: HLLSet × HLLSet → float
+        """
+        drn = self.drn_decompose(hll_prev, hll_curr)
+        return drn.delta
+    
+    def drn_stability_ratio(self, hll_prev: HLLSet, hll_curr: HLLSet) -> float:
+        """
+        Compute stability ratio: |N - D| / (|N| + |D|)
+        
+        0 = perfect stability (N ≈ D)
+        1 = maximum instability
+        
+        Morphism: HLLSet × HLLSet → float
+        """
+        drn = self.drn_decompose(hll_prev, hll_curr)
+        return drn.stability_ratio
     
     # -------------------------------------------------------------------------
     # Batch Operations (Efficiency Layer)

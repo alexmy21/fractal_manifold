@@ -35,11 +35,9 @@ import os
 # Handle both package import and direct execution
 if __name__ == "__main__":
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from core.sparse_tensor import get_device, get_default_dtype
     from core.hllset import HLLSet, compute_sha1
     from core.constants import P_BITS as KERNEL_P_BITS
 else:
-    from .sparse_tensor import get_device, get_default_dtype
     from .hllset import HLLSet, compute_sha1
     from .constants import P_BITS as KERNEL_P_BITS
 
@@ -53,7 +51,27 @@ import numpy as np
 
 
 # =============================================================================
-# SECTION 1: Configuration with N-Gram Layers
+# SECTION 1: Device Management (consolidated from sparse_tensor.py)
+# =============================================================================
+
+def get_device(prefer_cuda: bool = True) -> 'torch.device':
+    """Get the best available device."""
+    if not TORCH_AVAILABLE:
+        raise RuntimeError("PyTorch not available")
+    if prefer_cuda and torch.cuda.is_available():
+        return torch.device('cuda')
+    return torch.device('cpu')
+
+
+def get_default_dtype() -> 'torch.dtype':
+    """Default dtype for sparse values."""
+    if not TORCH_AVAILABLE:
+        raise RuntimeError("PyTorch not available")
+    return torch.float32
+
+
+# =============================================================================
+# SECTION 2: Configuration with N-Gram Layers
 # =============================================================================
 
 @dataclass(frozen=True)

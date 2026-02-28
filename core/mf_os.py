@@ -46,29 +46,35 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Tuple, Any, TYPE_CHECKING
 from pathlib import Path
 
-from .sparse_hrt_3d import (
+from .mf_algebra import (
+    # Core HRT Classes
     Sparse3DConfig,
     SparseHRT3D,
     SparseAM3D,
     SparseLattice3D,
     Edge3D,
-)
-from .mf_algebra import (
+    # LUT
     LookupTable,
     START, END,
+    # Processing
     unified_process,
     build_w_from_am,
+    # Perceptrons
     Perceptron,
+    PromptPerceptron,
+    ResponseActuator,
+    # Operations
     reachable_from,
     project_layer,
+    # Sparse matrices
     Sparse3DMatrix,
     # Query interface
     QueryContext,
     create_query_context,
     ask,
-    PromptPerceptron,
-    ResponseActuator,
+    # Disambiguation
     LayerHLLSets,
+    # Stores
     CommitStore,
 )
 from .duckdb_store import DuckDBStore

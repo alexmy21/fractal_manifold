@@ -170,12 +170,20 @@ from .duckdb_store import (
 )
 
 # DEPRECATED: Use ManifoldOS from mf_os instead
-from .manifold_os_iica import (
-    ManifoldOS_IICA,
-    ManifoldIICAConfig,
-    create_manifold_iica,
-    create_parallel_manifold,
-)
+# These imports are wrapped in try/except as the deprecated module has broken imports
+try:
+    from .deprecated.manifold_os_iica import (
+        ManifoldOS_IICA,
+        ManifoldIICAConfig,
+        create_manifold_iica,
+        create_parallel_manifold,
+    )
+except (ImportError, ModuleNotFoundError):
+    # Deprecated module unavailable - define placeholders
+    ManifoldOS_IICA = None
+    ManifoldIICAConfig = None
+    create_manifold_iica = None
+    create_parallel_manifold = None
 
 # ManifoldOS (mf_os) - Preferred orchestration layer
 from .mf_os import (
@@ -187,34 +195,113 @@ from .mf_os import (
     create_persistent_manifold,
 )
 
-# Sparse GPU Architecture (CUDA COO tensors)
-from .sparse_tensor import (
-    ImmutableSparseTensor,
-    get_device,
-    sparse_zeros,
-    sparse_from_dense,
-)
-
-from .sparse_hrt import (
-    SparseHRT,
-    SparseHRTConfig,
-    SparseAM,
-    SparseLattice,
-    BasicHLLSet as SparseBasicHLLSet,
-    create_sparse_hrt,
-)
-
-# Sparse 3D Architecture (N-gram layered AM)
+# Device management (from sparse_hrt_3d - consolidated)
 from .sparse_hrt_3d import (
-    SparseHRT3D,
-    Sparse3DConfig,
-    SparseAM3D,
-    SparseLattice3D,
-    ImmutableSparseTensor3D,
-    BasicHLLSet3D,
-    Edge3D,
-    create_sparse_hrt_3d,
+    get_device,
+    get_default_dtype,
 )
+
+# DEPRECATED: 2D Sparse Tensor - use ImmutableSparseTensor3D from sparse_hrt_3d
+try:
+    from .deprecated.sparse_tensor import (
+        ImmutableSparseTensor,
+        sparse_zeros,
+        sparse_from_dense,
+    )
+except (ImportError, ModuleNotFoundError):
+    ImmutableSparseTensor = None
+    sparse_zeros = None
+    sparse_from_dense = None
+
+# DEPRECATED: 2D Sparse HRT - use sparse_hrt_3d instead
+try:
+    from .deprecated.sparse_hrt_2d import (
+        SparseHRT,
+        SparseHRTConfig,
+        SparseAM,
+        SparseLattice,
+        BasicHLLSet as SparseBasicHLLSet,
+        create_sparse_hrt,
+    )
+except (ImportError, ModuleNotFoundError):
+    SparseHRT = None
+    SparseHRTConfig = None
+    SparseAM = None
+    SparseLattice = None
+    SparseBasicHLLSet = None
+    create_sparse_hrt = None
+
+# GraphBLAS Operations (CPU graph algorithms for lattice processing)
+try:
+    from .graphblas_ops import (
+        GRAPHBLAS_AVAILABLE,
+        # Converters
+        numpy_to_graphblas,
+        am_to_graphblas,
+        graphblas_to_am,
+        # Core algorithms (work on GraphBLAS Matrix)
+        bfs,
+        connected_components,
+        pagerank,
+        transitive_closure,
+        shortest_paths,
+        multi_source_bfs,
+        node_importance,
+        # SparseAM3D-aware algorithms
+        layer_reachability,
+        layer_importance,
+        # Lattice Matching & Entanglement
+        NodeSignature,
+        LatticeMatch,
+        compute_node_signatures,
+        bss_tau,
+        bss_rho,
+        bss_symmetric,
+        match_nodes_by_degree,
+        match_lattices,
+        find_entangled_subgraphs,
+        compute_entanglement_score,
+        # Token Reordering (Post-Disambiguation)
+        TokenPath,
+        find_all_paths,
+        find_shortest_path,
+        find_longest_path,
+        reorder_tokens,
+        rank_paths_by_ngram,
+    )
+except ImportError:
+    GRAPHBLAS_AVAILABLE = False
+    numpy_to_graphblas = None
+    am_to_graphblas = None
+    graphblas_to_am = None
+    bfs = None
+    connected_components = None
+    pagerank = None
+    transitive_closure = None
+    shortest_paths = None
+    multi_source_bfs = None
+    node_importance = None
+    layer_reachability = None
+    layer_importance = None
+    NodeSignature = None
+    LatticeMatch = None
+    compute_node_signatures = None
+    bss_tau = None
+    bss_rho = None
+    bss_symmetric = None
+    match_nodes_by_degree = None
+    match_lattices = None
+    find_entangled_subgraphs = None
+    compute_entanglement_score = None
+    TokenPath = None
+    find_all_paths = None
+    find_shortest_path = None
+    find_longest_path = None
+    reorder_tokens = None
+    rank_paths_by_ngram = None
+
+# Sparse 3D Architecture (N-gram layered AM) - via mf_algebra (separation of concerns)
+# All HRT classes are now exported through mf_algebra for consistent layering
 
 from .constants import (
     P_BITS,
@@ -229,12 +316,23 @@ from .constants import (
 )
 
 # Manifold Algebra (mf_algebra) - Unified Processing Model
+# Includes HRT classes for separation of concerns
 from .mf_algebra import (
+    # Core HRT Classes (canonical implementation)
+    SparseHRT3D,
+    Sparse3DConfig,
+    SparseAM3D,
+    SparseLattice3D,
+    ImmutableSparseTensor3D,
+    BasicHLLSet3D,
+    Edge3D,
+    create_sparse_hrt_3d,
+    
     # Universal ID
     UniversalID,
     content_to_index,
     
-    # Sparse Matrices
+    # Sparse Matrices (algebra wrappers)
     SparseMatrix,
     Sparse3DMatrix,
     
@@ -288,6 +386,13 @@ from .mf_algebra import (
     merge_hrt,
     unified_process,
     build_w_from_am,
+    
+    # Fractal D/R/N Evolution (Perceptron Swarm Entanglement)
+    DRN_CONVERGENCE_THRESHOLD,
+    DRNDecomposition,
+    FractalW,
+    TemporalDRN,
+    LayerHLLSets,
 )
 
 # Sign Tokenizer (Uninflected Sign Systems)
@@ -484,6 +589,13 @@ __all__ = [
     'unified_process',
     'build_w_from_am',
     
+    # Fractal D/R/N Evolution (Perceptron Swarm Entanglement)
+    'DRN_CONVERGENCE_THRESHOLD',
+    'DRNDecomposition',
+    'FractalW',
+    'TemporalDRN',
+    'LayerHLLSets',
+    
     # Sign Tokenizer (Uninflected Sign Systems)
     'tokenize_signs',
     'generate_sign_ngrams',
@@ -492,6 +604,41 @@ __all__ = [
     'build_cover_from_cols',
     'build_cover_from_w',
     'query_signs',
+    
+    # GraphBLAS Operations (CPU graph algorithms)
+    'GRAPHBLAS_AVAILABLE',
+    'numpy_to_graphblas',
+    'am_to_graphblas',
+    'graphblas_to_am',
+    'bfs',
+    'connected_components',
+    'pagerank',
+    'transitive_closure',
+    'shortest_paths',
+    'multi_source_bfs',
+    'node_importance',
+    'layer_reachability',
+    'layer_importance',
+    
+    # Lattice Matching & Entanglement
+    'NodeSignature',
+    'LatticeMatch',
+    'compute_node_signatures',
+    'bss_tau',
+    'bss_rho',
+    'bss_symmetric',
+    'match_nodes_by_degree',
+    'match_lattices',
+    'find_entangled_subgraphs',
+    'compute_entanglement_score',
+    
+    # Token Reordering (Post-Disambiguation)
+    'TokenPath',
+    'find_all_paths',
+    'find_shortest_path',
+    'find_longest_path',
+    'reorder_tokens',
+    'rank_paths_by_ngram',
 ]
 
 __version__ = "0.7.0"  # Manifold Algebra - Unified Processing Model

@@ -62,16 +62,15 @@ except ImportError:
     raise ImportError("DuckDB is required. Install with: pip install duckdb")
 
 from .hllset import compute_sha1
-from .sparse_hrt_3d import (
+from .mf_algebra import (
     Sparse3DConfig,
     SparseHRT3D,
     SparseAM3D,
     SparseLattice3D,
     Edge3D,
+    LookupTable,
+    LayerHLLSets,
 )
-
-if TYPE_CHECKING:
-    from .mf_algebra import LookupTable, LayerHLLSets
 
 
 # =============================================================================

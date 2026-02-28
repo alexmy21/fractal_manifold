@@ -814,3 +814,15 @@ See [Apache License Version 2.0](LICENSE)
 2. **CRDTs**: Conflict-free Replicated Data Types (Shapiro et al.)
 3. **Karoubi Envelope**: Idempotent completion of a category
 4. **HyperLogLog**: Probabilistic data structure (Flajolet et al.)
+5. **NitroSAT**: Physics-Informed MaxSAT Solver with spectral geometry and heat kernel methods (Iyer, 2026) - [GitHub](https://github.com/sethuiyer/NitroSAT), [DOI: 10.5281/zenodo.18753235](https://doi.org/10.5281/zenodo.18753235)
+
+```bibtex
+@software{sethurathienam_iyer_2026_18753235,
+  author       = {Sethurathienam Iyer},
+  title        = {NitroSAT: A Physics-Informed MaxSAT Solver},
+  year         = 2026,
+  publisher    = {Zenodo},
+  doi          = {10.5281/zenodo.18753235},
+  url          = {https://doi.org/10.5281/zenodo.18753235},
+}
+```
